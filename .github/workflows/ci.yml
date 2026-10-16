@@ -1,0 +1,19 @@
+name: build
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+
+jobs:
+  maven:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - run: mvn -B -ntp validate
+      - run: mvn -B -ntp test
