@@ -1,10 +1,10 @@
 # Java Real-Time Banking Data Platform
 
-Portfolio implementation plan and Maven skeleton for a local, synthetic banking transaction data platform.
+Local portfolio data platform for synthetic banking transactions, implemented incrementally with reproducible acceptance gates.
 
 ## Current status
 
-The repository contains the Phase 0 multi-module layout and the Phase 1 domain contracts and OLTP migrations. Runtime services, Docker Compose infrastructure, Kafka topics and end-to-end tests remain planned work; they are not claimed to be implemented yet.
+Phases 0–2 are implemented. The transaction service exposes create/read APIs, validates requests, persists a transaction and its outbox event atomically, and provides global idempotency-key handling. Kafka publishing, Docker Compose infrastructure and full pipeline E2E remain planned work; they are not claimed to be implemented yet.
 
 ## Repository layout
 
@@ -17,7 +17,7 @@ The repository contains the Phase 0 multi-module layout and the Phase 1 domain c
 
 - JDK 21
 - Maven 3.8.7 or newer
-- Docker Engine for the Phase 1 PostgreSQL migration integration test
+- Docker Engine for PostgreSQL migration and transaction API integration tests
 - Docker Compose v2 for later runtime phases
 
 ## Verify the current implementation
@@ -29,8 +29,29 @@ mvn -B -ntp test
 
 If Maven cannot write to the local dependency cache, fix the cache permissions or configure a CI mirror before interpreting the result as a project failure.
 
+## Transaction API
+
+The API expects an existing active account in the OLTP database. Build the executable artifact and start it with the database environment variables shown in `.env.example`:
+
+```bash
+mvn -B -ntp -pl services/transaction-service -am package
+java -jar services/transaction-service/target/transaction-service-0.1.0-SNAPSHOT.jar
+```
+
+Create a synthetic transaction:
+
+```bash
+curl -i -X POST http://localhost:8080/api/v1/transactions \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-txn-001' \
+  -H 'X-Correlation-ID: demo-correlation-001' \
+  -d '{"accountId":"ACC10001","transactionType":"TRANSFER","amount":"1500000.00","currency":"VND"}'
+```
+
+Actuator health and Prometheus metrics default to the local-only management listener on port `8081`.
+
 ## Next implementation gate
 
-Phase 1 contract and migration gates are implemented. The next gate is the Phase 2 transaction API with atomic transaction/outbox persistence and idempotency behavior.
+The next gate is Phase 3: a deterministic transaction generator and an at-least-once outbox publisher. Kafka infrastructure itself remains Phase 4.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full plan and acceptance gates.

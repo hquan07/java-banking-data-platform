@@ -12,9 +12,9 @@ Tài liệu này là **implementation plan**, không phải bằng chứng rằn
 |---|---|---|
 | Maven | Parent multi-module đã khai báo 9 modules, Java 21 và dependency BOM | Tiếp tục pin dependency/image theo compatibility matrix khi mỗi phase thêm runtime |
 | Java | Maven compiler và CI đã chốt Java 21; môi trường local kiểm tra dùng OpenJDK 21.0.12.1 | Giữ Java 21 làm baseline và xác minh runtime riêng cho Flink ở Phase 5 |
-| Source modules | Phase 0 skeleton đã có; Phase 1 bổ sung common contracts, Flyway migrations và tests | Các service runtime, infrastructure và E2E vẫn là planned work |
-| Build baseline | Full reactor `mvn test` đã pass 7 tests, gồm PostgreSQL 17.11 Testcontainers và 2 Flyway migrations | CI phải tái lập kết quả; chưa coi runtime/E2E là pass |
-| Runtime/deployment | Đã có OLTP migrations; chưa có `docker-compose.yml`, topic bootstrap hoặc smoke test | Chỉ ghi nhận E2E pass sau khi chạy bằng artifact thật và lưu evidence |
+| Source modules | Phase 0 skeleton, Phase 1 contracts/migrations và Phase 2 transaction service đã có | Generator, publisher, streaming, sinks, analytics và batch vẫn là planned work |
+| Build baseline | Full reactor `mvn verify` đã pass 15 tests, gồm PostgreSQL 17.11 Testcontainers, API/idempotency và rollback outbox | CI phải tái lập kết quả; chưa coi full runtime/E2E là pass |
+| Runtime/deployment | Transaction service có executable jar và cấu hình local; chưa có `docker-compose.yml`, topic bootstrap hoặc smoke test | Chỉ ghi nhận E2E pass sau khi chạy bằng artifact thật và lưu evidence |
 
 Các mục trong tài liệu dùng ba trạng thái: **planned** (kế hoạch), **implemented** (đã có code/config), và **verified** (đã chạy kiểm chứng). Chỉ được đánh dấu `verified` khi có lệnh, log hoặc artifact tái hiện được. Không dùng số liệu benchmark mục tiêu như số liệu thực tế.
 
@@ -363,6 +363,8 @@ Response contract cần chốt trước khi viết client:
 - Health/readiness/liveness tách biệt; readiness phải phản ánh dependency cần cho request hiện tại, còn metrics endpoint chỉ mở trong network nội bộ.
 
 **Exit gate:** cùng một idempotency key gửi lại không sinh giao dịch/outbox trùng; rollback DB khiến cả hai bảng không có bản ghi.
+
+**Trạng thái 2026-10-16:** implemented và integration-tested trên PostgreSQL 17.11 Testcontainers. API dùng Spring JDBC, Bean Validation, Flyway, Actuator/Prometheus, correlation ID và error envelope an toàn. Request mới commit transaction + outbox rồi trả `201`; retry cùng key/payload trả `200`; cùng key/payload khác trả `409`. Idempotency key có global scope, tối đa 128 ký tự và được giữ cùng transaction, chưa có TTL tự động. PostgreSQL advisory transaction lock xử lý retry đồng thời; unique constraint vẫn là invariant cuối. Test cưỡng bức outbox insert lỗi đã xác nhận cả transaction và outbox đều rollback. Chưa có Compose/live smoke test, vì vậy không coi deployment hoặc E2E pipeline là verified.
 
 ## 8. Phase 3 — Transaction Generator và Outbox Publisher
 

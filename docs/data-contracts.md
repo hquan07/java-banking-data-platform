@@ -34,3 +34,40 @@ Phase 1 defines two versioned JSON Schema 2020-12 contracts and matching immutab
 5. Schema and Java record changes must be committed together with positive and negative tests.
 
 The tests serialize the Java records, validate them against the schemas with format assertions enabled, verify round trips and prove that numeric money and unknown fields are rejected.
+
+## Transaction API contract
+
+`POST /api/v1/transactions` accepts camel-case JSON with these fields:
+
+| Field | Rule |
+|---|---|
+| `accountId` | 1–64 characters; starts alphanumeric, followed by alphanumeric, `_` or `-` |
+| `transactionType` | `DEPOSIT`, `WITHDRAWAL`, `PAYMENT` or `TRANSFER` |
+| `amount` | JSON string, positive, exactly two fractional digits, fits `NUMERIC(19,2)` |
+| `currency` | Three uppercase letters and must match the account currency |
+
+Unknown request fields are rejected, and the `amount` field uses strict deserialization so a numeric JSON token is not accepted for its string-based contract.
+
+The required `Idempotency-Key` header contains 1–128 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`, `:`, or `-`. For the MVP it has global scope and no automatic expiry: the transaction row retains the key for the lifetime of that row. Clients must therefore generate a new key for every distinct business request.
+
+- A first successful request returns `201 Created` with a `Location` header.
+- A retry with the same key and canonical payload returns `200 OK`, the original `transactionId`, and `idempotentReplay=true`.
+- Reusing the key for a different canonical payload returns `409 Conflict`.
+- Concurrent requests with the same key are serialized in PostgreSQL before lookup/insert.
+
+The response contains transaction fields plus `correlationId` and `idempotentReplay`; it never exposes the idempotency key, request fingerprint, or outbox payload. `X-Correlation-ID` may be supplied by the caller when it matches the safe 1–128 character format; otherwise the service generates one and always returns it in the response header.
+
+Errors use one shape:
+
+```json
+{
+  "code": "VALIDATION_ERROR",
+  "message": "Request validation failed",
+  "correlationId": "demo-correlation-001",
+  "details": [
+    {"field": "amount", "message": "must be a positive decimal string with exactly two fractional digits"}
+  ]
+}
+```
+
+The implemented status mapping is `400` invalid request, `404` missing account/transaction, `409` idempotency or account-state conflict, `500` unexpected internal error, and `503` database/dependency failure. Internal exception and SQL details are logged but not returned to the client.
