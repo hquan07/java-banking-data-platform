@@ -12,9 +12,9 @@ Tài liệu này là **implementation plan**, không phải bằng chứng rằn
 |---|---|---|
 | Maven | Parent multi-module đã khai báo 9 modules, Java 21 và dependency BOM | Tiếp tục pin dependency/image theo compatibility matrix khi mỗi phase thêm runtime |
 | Java | Maven compiler và CI đã chốt Java 21; môi trường local kiểm tra dùng OpenJDK 21.0.12.1 | Giữ Java 21 làm baseline và xác minh runtime riêng cho Flink ở Phase 5 |
-| Source modules | Phase 0 skeleton, Phase 1 contracts/migrations và Phase 2 transaction service đã có | Generator, publisher, streaming, sinks, analytics và batch vẫn là planned work |
-| Build baseline | Full reactor `mvn verify` đã pass 15 tests, gồm PostgreSQL 17.11 Testcontainers, API/idempotency và rollback outbox | CI phải tái lập kết quả; chưa coi full runtime/E2E là pass |
-| Runtime/deployment | Transaction service có executable jar và cấu hình local; chưa có `docker-compose.yml`, topic bootstrap hoặc smoke test | Chỉ ghi nhận E2E pass sau khi chạy bằng artifact thật và lưu evidence |
+| Source modules | Phase 0–4 đã có contracts/migrations, transaction API, generator, outbox publisher và Kafka local infrastructure | Streaming, sinks, analytics và batch vẫn là planned work |
+| Build baseline | Ở mốc Phase 4, full reactor `mvn verify` pass 22 tests; Compose/script validation và live smoke gate cũng pass | CI phải tiếp tục tái lập Maven + Compose config; downstream modules rỗng chưa được tính là implemented |
+| Runtime/deployment | Compose chạy PostgreSQL, Kafka KRaft, transaction service, publisher và one-shot topic bootstrap; Phase 4 smoke kiểm tra đường API → Kafka | Flink, lake, warehouse và full-platform E2E vẫn chưa được triển khai |
 
 Các mục trong tài liệu dùng ba trạng thái: **planned** (kế hoạch), **implemented** (đã có code/config), và **verified** (đã chạy kiểm chứng). Chỉ được đánh dấu `verified` khi có lệnh, log hoặc artifact tái hiện được. Không dùng số liệu benchmark mục tiêu như số liệu thực tế.
 
@@ -516,6 +516,8 @@ Single broker local: replication factor = 1. Production: multi-broker và replic
 **Exit gate:** topics tạo bằng script idempotent; consumer nhận sự kiện đúng key; restart không mất offset đã commit.
 
 Topic governance phải ghi rõ owner, schema version, retention, cleanup policy, partition count, key contract, PII classification và replay policy. Với local single broker có thể dùng plaintext để giảm ma sát; mọi profile ngoài local phải bật TLS/ACL theo `docs/security.md`. Khi bật TLS, SAN/hostname nội bộ phải khớp service name `kafka`; không dùng `banking_kafka` làm hostname client.
+
+**Trạng thái 2026-10-17:** implemented với `apache/kafka:4.3.1` chạy KRaft single-node, auto topic creation bị tắt, internal hostname cố định là `kafka` và host listener chỉ bind `127.0.0.1`. Sáu topic được quản lý từ `infrastructure/kafka/topics.tsv`; `scripts/create-topics.sh` tạo/cập nhật partition, retention và cleanup policy theo cách idempotent, đồng thời fail nếu topology hiện tại không thể thu hẹp an toàn. Compose đóng gói transaction service, publisher và generator bằng Java 21 image không chạy root; PostgreSQL/Kafka dùng named volume. `scripts/smoke-test.sh` kiểm tra topic bootstrap chạy lại, hai transaction cùng account đi cùng partition, Kafka key khớp `account_id`, outbox chỉ được đánh dấu sau publish, và consumer group restart tiếp tục từ committed offset. Invalid/DLQ topics đã được provision nhưng logic routing business/technical error thuộc Phase 5, chưa được nhận là implemented.
 
 ## 10. Phase 5 — Flink Java streaming
 

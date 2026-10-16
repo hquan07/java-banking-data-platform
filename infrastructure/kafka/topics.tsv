@@ -1,0 +1,7 @@
+# topic	partitions	replication_factor	retention_ms	cleanup_policy
+banking.transactions.raw	3	1	604800000	delete
+banking.transactions.validated	3	1	604800000	delete
+banking.transactions.invalid	3	1	1209600000	delete
+banking.transactions.fraud-alerts	3	1	2592000000	delete
+banking.transactions.aggregates	3	1	2592000000	delete
+banking.transactions.dlq	3	1	2592000000	delete

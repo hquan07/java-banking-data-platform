@@ -17,3 +17,5 @@ jobs:
           cache: maven
       - run: mvn -B -ntp validate
       - run: mvn -B -ntp test
+      - run: bash -n scripts/create-topics.sh scripts/smoke-test.sh
+      - run: docker compose config --quiet

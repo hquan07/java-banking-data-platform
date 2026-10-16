@@ -20,7 +20,7 @@ VALUES ('ACC10001', 'CUS10001', 'VND', 'ACTIVE');
 
 To diagnose a failed create request, use the returned `X-Correlation-ID` to search application logs, then check database readiness. Never return or paste database exception text into an API response. A client may retry a dependency failure with the exact same `Idempotency-Key` and payload: after an uncertain response, the idempotency lookup determines whether the first attempt committed.
 
-The management listener defaults to `127.0.0.1:8081`. Do not expose it publicly. A later Compose phase may bind it inside a private monitoring network.
+The management listener defaults to `127.0.0.1:8081`. Do not expose it publicly. Compose maps it to host port `18081` by default.
 
 ## Transaction generator (Phase 3)
 
@@ -37,11 +37,36 @@ Use a fixed seed for reproducible tests. Increase load gradually and keep `GENER
 1. Ensure the Phase 2 Flyway schema exists and Kafka is reachable. Until Phase 4 bootstrap is implemented, create `banking.transactions.raw` explicitly with the required partition/replication policy.
 2. Build with `mvn -B -ntp -pl services/outbox-publisher -am package`.
 3. Set database/Kafka variables and `OUTBOX_PUBLISHER_ENABLED=true`, then run the executable jar.
-4. Verify publisher liveness/readiness on `127.0.0.1:8083`; scrape `/actuator/prometheus` only from the private monitoring network.
+4. Verify publisher liveness/readiness on `127.0.0.1:8083` when running the jar directly; Compose maps it to host port `18083`. Scrape `/actuator/prometheus` only from the private monitoring network.
 5. Monitor unpublished backlog, publish failures/retries and publish latency. A growing backlog with failed readiness normally indicates Kafka or database connectivity trouble.
 
 During a Kafka outage, leave the publisher running or restart it after Kafka recovers. Rows remain in `outbox_events`; backoff schedules the next attempt and expired leases make interrupted claims recoverable. Do not manually set `published_at`, delete rows or clear errors to force progress. Duplicate delivery can occur after ACK but before the database update and must be handled downstream by `event_id`.
 
+## Kafka and Compose runtime (Phase 4)
+
+Start in dependency order with one command:
+
+```bash
+docker compose up -d --build postgres kafka kafka-init transaction-service outbox-publisher
+docker compose ps -a
+```
+
+Expected state: PostgreSQL and Kafka are healthy, the two Java services are running, and `kafka-init` has exited with code 0. Because init is one-shot, inspect it with `docker compose ps -a` rather than waiting for it to remain running. Reapply and verify the manifest with `docker compose run --rm kafka-init`.
+
+Default host mappings are API `18080`, API management `18081`, publisher `18082`, publisher management `18083`, PostgreSQL `55432` and Kafka `9092`. Container-to-container ports remain unchanged.
+
+Run `./scripts/smoke-test.sh` after configuration or image changes. It seeds synthetic `ACC_PHASE4`, creates two transactions, verifies Kafka key/partition and proves a restarted consumer group continues after its committed offset. Generated rows and events are synthetic and may remain in local volumes for inspection.
+
+Useful diagnostics:
+
+```bash
+docker compose logs kafka kafka-init transaction-service outbox-publisher
+docker compose exec -T kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe
+docker compose exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server kafka:9092 --all-groups --describe
+```
+
+Use `docker compose restart kafka` for a non-destructive restart test. Use `docker compose down` to stop the stack while retaining named volumes. Never use `docker compose down -v` during ordinary troubleshooting because it deletes PostgreSQL and Kafka state.
+
 ## Planned procedures
 
-Backup/restore, operator-driven outbox replay, DLQ handling, Flink recovery, warehouse recovery and data mismatch procedures remain planned. Automated outbox retry through a temporary Kafka outage is verified with disposable test data; the Phase 4 Compose operational procedure is not. Do not mark any other recovery procedure verified until it has been executed against disposable test data.
+Backup/restore, operator-driven outbox replay, DLQ handling, Flink recovery, warehouse recovery and data mismatch procedures remain planned. Automated outbox retry through a temporary Kafka outage and the Phase 4 Compose startup/topic/offset path are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.

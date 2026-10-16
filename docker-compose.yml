@@ -1,0 +1,154 @@
+name: java-banking-data-platform
+
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_OLTP_DB:-banking_oltp}
+      POSTGRES_USER: ${POSTGRES_USER:-banking}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres-oltp-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [banking]
+
+  kafka:
+    image: apache/kafka:4.3.1
+    hostname: kafka
+    environment:
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-5L6g3nShT-eMCtK--X86sw}
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: CONTROLLER://:9093,PLAINTEXT://:9092,PLAINTEXT_HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:${KAFKA_HOST_PORT:-9092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    ports:
+      - "127.0.0.1:${KAFKA_HOST_PORT:-9092}:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+    networks: [banking]
+
+  kafka-init:
+    image: apache/kafka:4.3.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/opt/banking/create-topics.sh"]
+    command: ["kafka:9092", "/opt/banking/topics.tsv"]
+    volumes:
+      - ./scripts/create-topics.sh:/opt/banking/create-topics.sh:ro
+      - ./infrastructure/kafka/topics.tsv:/opt/banking/topics.tsv:ro
+    restart: "no"
+    networks: [banking]
+
+  transaction-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: services/transaction-service
+        ARTIFACT: transaction-service-0.1.0-SNAPSHOT.jar
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_OLTP_DB:-banking_oltp}
+      DB_USERNAME: ${POSTGRES_USER:-banking}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+      DB_MAX_POOL_SIZE: ${DB_MAX_POOL_SIZE:-10}
+      DB_CONNECTION_TIMEOUT_MS: ${DB_CONNECTION_TIMEOUT_MS:-3000}
+      SERVER_PORT: 8080
+      MANAGEMENT_SERVER_PORT: 8081
+      MANAGEMENT_SERVER_ADDRESS: 0.0.0.0
+    ports:
+      - "127.0.0.1:${TRANSACTION_HOST_PORT:-18080}:8080"
+      - "127.0.0.1:${TRANSACTION_MANAGEMENT_HOST_PORT:-18081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [banking]
+
+  outbox-publisher:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: services/outbox-publisher
+        ARTIFACT: outbox-publisher-0.1.0-SNAPSHOT.jar
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_OLTP_DB:-banking_oltp}
+      DB_USERNAME: ${POSTGRES_USER:-banking}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+      DB_MAX_POOL_SIZE: ${DB_MAX_POOL_SIZE:-10}
+      DB_CONNECTION_TIMEOUT_MS: ${DB_CONNECTION_TIMEOUT_MS:-3000}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      OUTBOX_PUBLISHER_ENABLED: "true"
+      OUTBOX_TOPIC: banking.transactions.raw
+      PUBLISHER_SERVER_PORT: 8082
+      PUBLISHER_MANAGEMENT_PORT: 8083
+      PUBLISHER_MANAGEMENT_ADDRESS: 0.0.0.0
+    ports:
+      - "127.0.0.1:${PUBLISHER_HOST_PORT:-18082}:8082"
+      - "127.0.0.1:${PUBLISHER_MANAGEMENT_HOST_PORT:-18083}:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      transaction-service:
+        condition: service_started
+    restart: unless-stopped
+    networks: [banking]
+
+  transaction-generator:
+    profiles: [loadtest]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: services/transaction-generator
+        ARTIFACT: transaction-generator-0.1.0-SNAPSHOT.jar
+    environment:
+      GENERATOR_ENABLED: "true"
+      TRANSACTION_API_BASE_URL: http://transaction-service:8080
+      GENERATOR_TPS: ${GENERATOR_TPS:-10}
+      GENERATOR_DURATION: ${GENERATOR_DURATION:-60s}
+      GENERATOR_SEED: ${GENERATOR_SEED:-1607}
+      GENERATOR_ACCOUNT_IDS: ${GENERATOR_ACCOUNT_IDS:-ACC10001}
+      GENERATOR_CURRENCY: ${GENERATOR_CURRENCY:-VND}
+      GENERATOR_MAX_IN_FLIGHT: ${GENERATOR_MAX_IN_FLIGHT:-100}
+    depends_on:
+      transaction-service:
+        condition: service_started
+    restart: "no"
+    networks: [banking]
+
+volumes:
+  postgres-oltp-data:
+  kafka-data:
+
+networks:
+  banking:
+    driver: bridge

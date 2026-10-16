@@ -4,7 +4,7 @@ Local portfolio data platform for synthetic banking transactions, implemented in
 
 ## Current status
 
-Phases 0–3 are implemented. In addition to the transactional API, the platform now has a deterministic configurable load generator and an at-least-once outbox publisher with claim leases, Kafka acknowledgements, retry/backoff and operational metrics. Phase 3 is integration-tested with disposable PostgreSQL 17.11 and Kafka 4.3.1 containers. Docker Compose infrastructure and full pipeline E2E remain Phase 4 work.
+Phases 0–4 are implemented. The local stack now includes PostgreSQL 17.11, a single-node Kafka 4.3.1 KRaft broker, idempotent topic bootstrap, the transaction API and the outbox publisher. A reproducible smoke test verifies API → database/outbox → Kafka delivery, account-key partition consistency and committed consumer offsets across a restart. Flink processing and downstream invalid/DLQ routing remain Phase 5 work.
 
 ## Repository layout
 
@@ -74,8 +74,33 @@ java -jar services/outbox-publisher/target/outbox-publisher-0.1.0-SNAPSHOT.jar
 
 Publisher health and Prometheus metrics default to the local-only listener on port `8083`. The publisher retains failed rows and later retries them; it never deletes outbox events.
 
+## Local Phase 4 stack
+
+Start the Kafka/PostgreSQL/API/publisher stack and create all governed topics:
+
+```bash
+docker compose up -d --build postgres kafka kafka-init transaction-service outbox-publisher
+docker compose ps -a
+```
+
+The Compose host endpoints are API `18080`, API management `18081`, publisher `18082`, publisher management `18083`, PostgreSQL `55432` and Kafka `9092`. Override the corresponding `*_HOST_PORT` values when needed.
+
+`kafka-init` is a one-shot service and should show `Exited (0)`. Running it again is safe:
+
+```bash
+docker compose run --rm kafka-init
+```
+
+Run the complete Phase 4 acceptance test:
+
+```bash
+./scripts/smoke-test.sh
+```
+
+The smoke test leaves the stack and named volumes running for inspection. Stop services without deleting data using `docker compose down`. Do not add `-v` unless you intentionally want to delete local Kafka and PostgreSQL data.
+
 ## Next implementation gate
 
-The next gate is Phase 4: reproducible Docker Compose infrastructure, explicit Kafka topic bootstrap and an end-to-end local smoke test.
+The next gate is Phase 5: Flink validation, deduplication, invalid/DLQ routing, fraud rules and event-time aggregation.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full plan and acceptance gates.

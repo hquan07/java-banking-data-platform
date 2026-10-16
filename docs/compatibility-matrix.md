@@ -13,6 +13,10 @@ This file is the source of truth for project versions. Runtime images and depend
 | PostgreSQL | 17.11 | Migration, API and publisher integration verified | Testcontainers image is pinned to `postgres:17.11-alpine`; migration, rollback, idempotency and outbox claim/lease tests pass | 2026-10-16 |
 | MinIO Community Server | RELEASE.2025-10-15T17-29-55Z | Provisional local-demo pin | The [upstream repository](https://github.com/minio/minio/releases) is archived; reassess replacement and security posture before Phase 6 | 2026-10-16 |
 | Airflow | 3.3.2 / Python 3.12 | Selected; Phase 8 runtime validation pending | [Official installation](https://airflow.apache.org/docs/apache-airflow/stable/installation/installing-from-pypi.html); use versioned constraints and image `apache/airflow:3.3.2` | 2026-10-16 |
+| Docker Engine | 29.9.0 | Phase 4 verified locally | Compose build, KRaft health check, named volumes and smoke test runtime | 2026-10-17 |
+| Docker Compose | 2.39.4 | Phase 4 verified locally | `docker compose config`, one-shot `service_completed_successfully` dependency and local runtime | 2026-10-17 |
+| Container build JDK | Eclipse Temurin JRE 21.0.9+10 | Phase 4 selected | Runtime image `eclipse-temurin:21.0.9_10-jre`; application processes use non-root UID 10001 | 2026-10-17 |
+| Container build Maven | 3.9.11 / Temurin 21 | Phase 4 selected | Builder image `maven:3.9.11-eclipse-temurin-21`; final runtime does not contain Maven | 2026-10-17 |
 
 ## Upgrade policy
 

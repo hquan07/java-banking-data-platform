@@ -66,3 +66,17 @@ Required diagrams:
 3. Kafka-to-Flink validation/fraud/aggregation — planned.
 4. Sink idempotency and replay — planned.
 5. Batch reconciliation and report publication — planned.
+
+## Phase 4 local runtime topology
+
+```mermaid
+flowchart LR
+    HOST[Host 127.0.0.1] --> API[transaction-service]
+    API --> PG[(PostgreSQL 17.11)]
+    PUB[outbox-publisher] --> PG
+    PUB --> K[Kafka 4.3.1 KRaft]
+    INIT[kafka-init one-shot] --> K
+    GEN[generator loadtest profile] --> API
+```
+
+Kafka has separate listeners for the Docker network (`kafka:9092`) and the host (`localhost:9092`). Auto topic creation is disabled; the one-shot init service applies the checked-in topic manifest before the publisher starts. PostgreSQL and Kafka state use named volumes and are preserved by a normal `docker compose down`.
