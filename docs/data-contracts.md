@@ -71,3 +71,12 @@ Errors use one shape:
 ```
 
 The implemented status mapping is `400` invalid request, `404` missing account/transaction, `409` idempotency or account-state conflict, `500` unexpected internal error, and `503` database/dependency failure. Internal exception and SQL details are logged but not returned to the client.
+
+## Outbox publication contract
+
+- `outbox_events.payload` is the canonical `TransactionCreatedEvent` JSON and its metadata must match `event_id`, `aggregate_id`, `event_type` and `schema_version` before publishing.
+- The Kafka topic defaults to `banking.transactions.raw`; its record key is `account_id` so transactions for one account stay in one partition.
+- Producer delivery is at least once with idempotence enabled and `acks=all`. Idempotent production protects Kafka retries within a producer session, but it does not remove the crash-after-ACK duplicate window across database and Kafka.
+- A row receives `published_at` only after Kafka acknowledges the send and only while the worker still owns its claim token.
+- Failed rows are retained with attempts, a sanitized error and `next_attempt_at`; they are never silently deleted or converted into a different event contract.
+- Downstream consumers must deduplicate by `event_id` and explicitly handle unsupported schema versions.

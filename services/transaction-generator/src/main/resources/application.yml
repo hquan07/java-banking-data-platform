@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: transaction-generator
+  main:
+    web-application-type: none
+    banner-mode: off
+
+generator:
+  enabled: ${GENERATOR_ENABLED:false}
+  api-base-url: ${TRANSACTION_API_BASE_URL:http://localhost:8080}
+  transactions-per-second: ${GENERATOR_TPS:10}
+  duration: ${GENERATOR_DURATION:60s}
+  seed: ${GENERATOR_SEED:1607}
+  account-ids: ${GENERATOR_ACCOUNT_IDS:ACC10001}
+  currency: ${GENERATOR_CURRENCY:VND}
+  max-in-flight: ${GENERATOR_MAX_IN_FLIGHT:100}
+  request-timeout: ${GENERATOR_REQUEST_TIMEOUT:5s}
+  burst-every-requests: ${GENERATOR_BURST_EVERY_REQUESTS:100}
+  burst-size: ${GENERATOR_BURST_SIZE:10}
+
+logging:
+  level:
+    io.github.hquan07.banking.generator: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5p [%thread] %logger{36} : %msg %kvp%n%wEx"

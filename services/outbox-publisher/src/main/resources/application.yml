@@ -1,0 +1,61 @@
+spring:
+  application:
+    name: outbox-publisher
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/banking}
+    username: ${DB_USERNAME:banking}
+    password: ${DB_PASSWORD:banking}
+    hikari:
+      maximum-pool-size: ${DB_MAX_POOL_SIZE:10}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT_MS:3000}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 2147483647
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+        delivery.timeout.ms: ${KAFKA_DELIVERY_TIMEOUT_MS:10000}
+        request.timeout.ms: ${KAFKA_REQUEST_TIMEOUT_MS:3000}
+        max.block.ms: ${KAFKA_MAX_BLOCK_MS:5000}
+
+server:
+  port: ${PUBLISHER_SERVER_PORT:8082}
+
+management:
+  server:
+    port: ${PUBLISHER_MANAGEMENT_PORT:8083}
+    address: ${PUBLISHER_MANAGEMENT_ADDRESS:127.0.0.1}
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db,kafka
+        liveness:
+          include: livenessState
+
+publisher:
+  enabled: ${OUTBOX_PUBLISHER_ENABLED:false}
+  topic: ${OUTBOX_TOPIC:banking.transactions.raw}
+  poll-interval: ${OUTBOX_POLL_INTERVAL:1s}
+  batch-size: ${OUTBOX_BATCH_SIZE:100}
+  lease-duration: ${OUTBOX_LEASE_DURATION:30s}
+  send-timeout: ${OUTBOX_SEND_TIMEOUT:8s}
+  initial-backoff: ${OUTBOX_INITIAL_BACKOFF:1s}
+  max-backoff: ${OUTBOX_MAX_BACKOFF:5m}
+  jitter-factor: ${OUTBOX_JITTER_FACTOR:0.20}
+
+logging:
+  level:
+    io.github.hquan07.banking.publisher: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %5p [%thread] %logger{36} : %msg %kvp%n%wEx"

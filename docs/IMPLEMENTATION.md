@@ -385,6 +385,8 @@ Response contract cần chốt trước khi viết client:
 
 **Exit gate:** tắt Kafka trong lúc tạo giao dịch → outbox tồn tại; bật Kafka → backlog được publish; crash sau ack có thể phát trùng nhưng downstream không nhân đôi.
 
+**Trạng thái 2026-10-16:** implemented và integration-tested với PostgreSQL 17.11 cùng Kafka 4.3.1 Testcontainers. Generator chạy bằng Java 21, nhận TPS/duration/seed/danh sách account, tạo workload xác định gồm 91% normal, 2% large amount, 2% idempotent retry, 3% invalid amount và 2% currency mismatch; burst được cấu hình độc lập. Báo cáo cuối gồm tổng request, success/failure theo HTTP/transport, p50/p95/p99 và throughput, không log payload. Publisher claim batch bằng `FOR UPDATE SKIP LOCKED`, dùng lease ngắn và không giữ transaction DB khi chờ Kafka; key là `account_id`, producer bật idempotence và `acks=all`, chỉ cập nhật `published_at` sau ACK. Lỗi publish giữ nguyên row, lưu lỗi đã rút gọn và retry exponential backoff có jitter. Test đã xác nhận outage giữ backlog, Kafka phục hồi thì publish lại, claim đồng thời không trùng và lease hết hạn có thể được reclaim. Duplicate sau ACK nhưng trước DB update vẫn là khả năng có chủ đích của at-least-once; dedup downstream thuộc Phase 5. Compose/topic bootstrap/live pipeline vẫn thuộc Phase 4.
+
 ## Cross-cutting — Data Sources, nguồn dữ liệu, tải và tích hợp
 
 > **Quyết định:** kết hợp **synthetic data** cho streaming liên tục và **public historical datasets** cho backfill, replay, kiểm thử fraud/AML. Toàn bộ là dữ liệu mô phỏng hoặc công khai; không sử dụng dữ liệu ngân hàng thật.

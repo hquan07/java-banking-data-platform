@@ -1,6 +1,6 @@
 # Architecture
 
-The target architecture and failure boundaries are described in `docs/IMPLEMENTATION.md`, section 3. The first implemented vertical slice is the Phase 2 transaction API.
+The target architecture and failure boundaries are described in `docs/IMPLEMENTATION.md`, section 3. The implemented vertical slice now covers the Phase 2 transaction API and the Phase 3 generator/outbox publisher.
 
 ## Transaction API and transactional outbox
 
@@ -35,12 +35,34 @@ sequenceDiagram
     end
 ```
 
-The advisory lock is transaction-scoped and keyed by a deterministic PostgreSQL hash of the globally scoped idempotency key. The unique constraint on `transactions.idempotency_key` remains the final database invariant. The outbox event is not published in this phase; Phase 3 will claim and publish committed rows at least once.
+The advisory lock is transaction-scoped and keyed by a deterministic PostgreSQL hash of the globally scoped idempotency key. The unique constraint on `transactions.idempotency_key` remains the final database invariant.
+
+## Outbox claim, publish and retry
+
+```mermaid
+sequenceDiagram
+    participant Worker as Outbox Publisher
+    participant DB as PostgreSQL OLTP
+    participant Kafka
+
+    Worker->>DB: claim due rows with SKIP LOCKED + lease
+    DB-->>Worker: committed claimed batch
+    Worker->>Kafka: send(event, key=account_id)
+    alt Kafka acknowledges
+        Kafka-->>Worker: ACK
+        Worker->>DB: set published_at if claim still owned
+    else send fails or times out
+        Kafka--xWorker: error/timeout
+        Worker->>DB: retain row, schedule backoff, release claim
+    end
+```
+
+The database claim transaction ends before network I/O. A claim token prevents a stale worker from completing another worker's row, while an expiring lease makes abandoned work recoverable. Delivery is at least once: a crash after Kafka ACK and before `published_at` can produce a duplicate, so Phase 5 consumers must deduplicate by `event_id`.
 
 Required diagrams:
 
 1. API transaction plus transactional outbox — implemented and integration-tested.
-2. Outbox-to-Kafka publish and retry — planned.
+2. Outbox-to-Kafka publish and retry — implemented and integration-tested.
 3. Kafka-to-Flink validation/fraud/aggregation — planned.
 4. Sink idempotency and replay — planned.
 5. Batch reconciliation and report publication — planned.
