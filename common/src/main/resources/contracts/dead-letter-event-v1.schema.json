@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/hquan07/java-banking-data-platform/contracts/dead-letter-event-v1.schema.json",
+  "title": "DeadLetterEvent v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "original_topic",
+    "original_partition",
+    "original_offset",
+    "failure_class",
+    "failure_code",
+    "failure_message",
+    "first_failed_at",
+    "retry_count",
+    "schema_version",
+    "payload_hash",
+    "replay_status"
+  ],
+  "properties": {
+    "event_id": {
+      "type": ["string", "null"],
+      "format": "uuid"
+    },
+    "original_topic": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 249
+    },
+    "original_partition": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "original_offset": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failure_class": {
+      "enum": ["BUSINESS", "SCHEMA", "INFRASTRUCTURE"]
+    },
+    "failure_code": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "failure_message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "first_failed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "retry_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "payload_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "replay_status": {
+      "enum": ["PENDING", "REPLAYED", "DISCARDED"]
+    }
+  }
+}

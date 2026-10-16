@@ -10,11 +10,11 @@ Tài liệu này là **implementation plan**, không phải bằng chứng rằn
 
 | Hạng mục | Trạng thái đã xác nhận | Việc cần làm trước khi coi là hoàn thành |
 |---|---|---|
-| Maven | Có `pom.xml` đơn, hiện chưa khai báo `<packaging>pom</packaging>` hoặc modules | Chuyển thành parent multi-module và pin plugin/dependency versions |
-| Java | `pom.xml` đang đặt compiler source/target là 25; môi trường kiểm tra hiện dùng JDK 21 | Chốt JDK mục tiêu (khuyến nghị Java 21) trong compatibility matrix rồi đồng bộ POM/container/CI |
-| Source modules | Chưa có `common/`, `services/`, `infrastructure/`, `scripts/` hoặc test source | Tạo theo từng phase, không tạo placeholder được đánh dấu đã hoàn thành |
-| Build baseline | Chưa có build xanh được xác nhận; lần kiểm tra hiện tại bị chặn khi Maven resolve plugin vào local repository | Sửa quyền/cache hoặc cấu hình mirror trong môi trường build rồi chạy lại `mvn -B -ntp clean verify` |
-| Runtime/deployment | Chưa có `docker-compose.yml`, migrations, topic bootstrap hoặc smoke test | Chỉ ghi nhận E2E pass sau khi chạy bằng artifact thật và lưu evidence |
+| Maven | Parent multi-module đã khai báo 9 modules, Java 21 và dependency BOM | Tiếp tục pin dependency/image theo compatibility matrix khi mỗi phase thêm runtime |
+| Java | Maven compiler và CI đã chốt Java 21; môi trường local kiểm tra dùng OpenJDK 21.0.12.1 | Giữ Java 21 làm baseline và xác minh runtime riêng cho Flink ở Phase 5 |
+| Source modules | Phase 0 skeleton đã có; Phase 1 bổ sung common contracts, Flyway migrations và tests | Các service runtime, infrastructure và E2E vẫn là planned work |
+| Build baseline | Full reactor `mvn test` đã pass 7 tests, gồm PostgreSQL 17.11 Testcontainers và 2 Flyway migrations | CI phải tái lập kết quả; chưa coi runtime/E2E là pass |
+| Runtime/deployment | Đã có OLTP migrations; chưa có `docker-compose.yml`, topic bootstrap hoặc smoke test | Chỉ ghi nhận E2E pass sau khi chạy bằng artifact thật và lưu evidence |
 
 Các mục trong tài liệu dùng ba trạng thái: **planned** (kế hoạch), **implemented** (đã có code/config), và **verified** (đã chạy kiểm chứng). Chỉ được đánh dấu `verified` khi có lệnh, log hoặc artifact tái hiện được. Không dùng số liệu benchmark mục tiêu như số liệu thực tế.
 
@@ -150,7 +150,7 @@ java-banking-data-platform/
 │   └── benchmarks.md
 ├── common/
 │   ├── pom.xml
-│   └── src/main/java/com/example/banking/common/
+│   └── src/main/java/io/github/hquan07/banking/common/
 ├── services/
 │   ├── transaction-service/
 │   ├── transaction-generator/
@@ -321,6 +321,8 @@ Mỗi migration phải có forward-only version, rollback/recovery note và test
 Envelope lỗi và DLQ cũng là contract, không chỉ là chuỗi log. Tối thiểu phải có `event_id` (nếu parse được), `original_topic`, `original_partition`, `original_offset`, `failure_class`, `failure_code`, `failure_message` đã loại secret, `first_failed_at`, `retry_count`, `schema_version`, `payload_hash` và `replay_status`. Phân biệt lỗi business không retry, lỗi schema cần sửa producer, và lỗi hạ tầng có thể retry. Tài liệu hóa compatibility rule: consumer mới đọc được payload cũ; field mới phải có default/optional; field bị bỏ phải có deprecation window.
 
 **Exit gate:** ERD + migrations + contract tests + unique constraints hoạt động.
+
+**Trạng thái 2026-10-16:** đã triển khai hai JSON Schema v1 và Java records tương ứng, hai Flyway migrations, ERD/invariant/recovery notes, cùng 7 tests. PostgreSQL Testcontainers đã áp dụng schema rỗng lên v2 và xác nhận các constraint idempotency, amount, outbox claim và fraud business key. Đây chưa phải bằng chứng Phase 2 API hoặc runtime deployment hoạt động.
 
 ## 7. Phase 2 — Transaction Service (Spring Boot)
 

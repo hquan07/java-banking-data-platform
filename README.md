@@ -1,11 +1,10 @@
-<<<<<<< HEAD
 # Java Real-Time Banking Data Platform
 
 Portfolio implementation plan and Maven skeleton for a local, synthetic banking transaction data platform.
 
 ## Current status
 
-The repository currently contains the Phase 0 multi-module layout and design documentation. Runtime services, Docker Compose infrastructure, database migrations, Kafka topics and end-to-end tests are planned work; they are not claimed to be implemented yet.
+The repository contains the Phase 0 multi-module layout and the Phase 1 domain contracts and OLTP migrations. Runtime services, Docker Compose infrastructure, Kafka topics and end-to-end tests remain planned work; they are not claimed to be implemented yet.
 
 ## Repository layout
 
@@ -18,9 +17,10 @@ The repository currently contains the Phase 0 multi-module layout and design doc
 
 - JDK 21
 - Maven 3.8.7 or newer
-- Docker Engine and Docker Compose v2 for later runtime phases
+- Docker Engine for the Phase 1 PostgreSQL migration integration test
+- Docker Compose v2 for later runtime phases
 
-## Build the current skeleton
+## Verify the current implementation
 
 ```bash
 mvn -B -ntp validate
@@ -31,9 +31,6 @@ If Maven cannot write to the local dependency cache, fix the cache permissions o
 
 ## Next implementation gate
 
-Complete `docs/compatibility-matrix.md`, then implement the Phase 1 migrations and contract tests before adding runtime containers.
+Phase 1 contract and migration gates are implemented. The next gate is the Phase 2 transaction API with atomic transaction/outbox persistence and idempotency behavior.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full plan and acceptance gates.
-=======
-# java-banking-data-platform
->>>>>>> origin/main
