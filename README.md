@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Java Real-Time Banking Data Platform
 
 Portfolio implementation plan and Maven skeleton for a local, synthetic banking transaction data platform.
@@ -33,3 +34,6 @@ If Maven cannot write to the local dependency cache, fix the cache permissions o
 Complete `docs/compatibility-matrix.md`, then implement the Phase 1 migrations and contract tests before adding runtime containers.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full plan and acceptance gates.
+=======
+# java-banking-data-platform
+>>>>>>> origin/main
