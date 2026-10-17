@@ -4,7 +4,7 @@ Local portfolio data platform for synthetic banking transactions, implemented in
 
 ## Current status
 
-Phases 0–4 are implemented. The local stack now includes PostgreSQL 17.11, a single-node Kafka 4.3.1 KRaft broker, idempotent topic bootstrap, the transaction API and the outbox publisher. A reproducible smoke test verifies API → database/outbox → Kafka delivery, account-key partition consistency and committed consumer offsets across a restart. Flink processing and downstream invalid/DLQ routing remain Phase 5 work.
+Phases 0–5 are implemented. The local stack includes PostgreSQL 17.11, Kafka 4.3.1 KRaft, the transaction API/outbox publisher and a Flink 2.1.3 streaming job. The job validates and deduplicates raw events, routes invalid/late failures, emits demo fraud alerts and builds event-time aggregates with checkpointed state and exactly-once Kafka sinks.
 
 ## Repository layout
 
@@ -17,8 +17,7 @@ Phases 0–4 are implemented. The local stack now includes PostgreSQL 17.11, a s
 
 - JDK 21
 - Maven 3.8.7 or newer
-- Docker Engine for PostgreSQL and Kafka integration tests
-- Docker Compose v2 for later runtime phases
+- Docker Engine and Docker Compose v2 for the local Kafka/Flink runtime
 
 ## Verify the current implementation
 
@@ -74,7 +73,7 @@ java -jar services/outbox-publisher/target/outbox-publisher-0.1.0-SNAPSHOT.jar
 
 Publisher health and Prometheus metrics default to the local-only listener on port `8083`. The publisher retains failed rows and later retries them; it never deletes outbox events.
 
-## Local Phase 4 stack
+## Local Phase 4–5 stack
 
 Start the Kafka/PostgreSQL/API/publisher stack and create all governed topics:
 
@@ -99,8 +98,25 @@ Run the complete Phase 4 acceptance test:
 
 The smoke test leaves the stack and named volumes running for inspection. Stop services without deleting data using `docker compose down`. Do not add `-v` unless you intentionally want to delete local Kafka and PostgreSQL data.
 
+Start Kafka plus the Phase 5 Flink cluster and submit the job idempotently:
+
+```bash
+make up-streaming
+docker compose ps -a
+```
+
+The Flink dashboard is bound to `127.0.0.1:18084`. Checkpoints use the `flink-checkpoints` named volume and are suitable for this single-host demo only; deleting the volume deletes recovery state.
+
+Run the Phase 5 acceptance test:
+
+```bash
+make smoke-streaming
+```
+
+The test recreates only the Flink containers, uses an isolated consumer group starting at the current raw-topic end offsets, then publishes valid, duplicate, invalid, high-value, velocity, watermark and late events. It checks all output topics, restarts the TaskManager and verifies that restored deduplication state still suppresses the duplicate. Kafka/PostgreSQL data and named volumes are not deleted.
+
 ## Next implementation gate
 
-The next gate is Phase 5: Flink validation, deduplication, invalid/DLQ routing, fraud rules and event-time aggregation.
+The next gate is Phase 6: MinIO-backed Bronze/Silver/Gold data lake storage. Warehouse idempotency remains Phase 7, so Phase 5 does not claim warehouse-level duplicate protection yet.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full plan and acceptance gates.

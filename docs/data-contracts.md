@@ -1,11 +1,13 @@
 # Data Contracts
 
-Phase 1 defines two versioned JSON Schema 2020-12 contracts and matching immutable Java records in the `banking-common` module.
+The shared module defines four versioned JSON Schema 2020-12 contracts and matching immutable Java records.
 
 | Contract | Java type | Machine-readable schema |
 |---|---|---|
 | Canonical transaction event | `TransactionCreatedEvent` | `common/src/main/resources/contracts/transaction-created-v1.schema.json` |
 | Dead-letter envelope | `DeadLetterEvent` | `common/src/main/resources/contracts/dead-letter-event-v1.schema.json` |
+| Fraud alert | `FraudAlertEvent` | `common/src/main/resources/contracts/fraud-alert-v1.schema.json` |
+| One-minute transaction aggregate | `TransactionAggregateEvent` | `common/src/main/resources/contracts/transaction-aggregate-v1.schema.json` |
 
 ## Canonical transaction rules
 
@@ -34,6 +36,12 @@ Phase 1 defines two versioned JSON Schema 2020-12 contracts and matching immutab
 5. Schema and Java record changes must be committed together with positive and negative tests.
 
 The tests serialize the Java records, validate them against the schemas with format assertions enabled, verify round trips and prove that numeric money and unknown fields are rejected.
+
+## Phase 5 output rules
+
+- Fraud alerts carry deterministic `alert_id`, a versioned demo rule code/version and the evaluated event-time window. High-value alerts reference one `event_id`; velocity alerts represent a window and therefore omit it.
+- Aggregates use deterministic `aggregate_id` and `window_key`, are keyed by currency plus window start and never combine different currencies.
+- Invalid and too-late records reuse `DeadLetterEvent`; infrastructure failures go to the DLQ topic. Neither path embeds the raw payload.
 
 ## Transaction API contract
 

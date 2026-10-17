@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.7
+
+FROM maven:3.9.11-eclipse-temurin-21 AS build
+
+WORKDIR /workspace
+COPY pom.xml ./
+COPY common/pom.xml common/pom.xml
+COPY services/transaction-service/pom.xml services/transaction-service/pom.xml
+COPY services/transaction-generator/pom.xml services/transaction-generator/pom.xml
+COPY services/outbox-publisher/pom.xml services/outbox-publisher/pom.xml
+COPY services/streaming-processor/pom.xml services/streaming-processor/pom.xml
+COPY services/lake-writer/pom.xml services/lake-writer/pom.xml
+COPY services/warehouse-writer/pom.xml services/warehouse-writer/pom.xml
+COPY services/batch-processor/pom.xml services/batch-processor/pom.xml
+COPY services/analytics-service/pom.xml services/analytics-service/pom.xml
+
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -ntp -pl services/streaming-processor -am -DexcludeScope=test dependency:go-offline
+
+COPY common/src common/src
+COPY services/streaming-processor/src services/streaming-processor/src
+
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -ntp -pl services/streaming-processor -am -Dmaven.test.skip=true package \
+    && cp services/streaming-processor/target/streaming-processor-0.1.0-SNAPSHOT.jar \
+       /tmp/banking-streaming.jar
+
+FROM flink:2.1.3-java21
+
+COPY --from=build --chown=flink:flink /tmp/banking-streaming.jar /opt/flink/usrlib/banking-streaming.jar
+
+USER root
+RUN mkdir -p /opt/flink/checkpoints \
+    && chown -R flink:flink /opt/flink/checkpoints
+
+USER flink

@@ -11,10 +11,10 @@ Tài liệu này là **implementation plan**, không phải bằng chứng rằn
 | Hạng mục | Trạng thái đã xác nhận | Việc cần làm trước khi coi là hoàn thành |
 |---|---|---|
 | Maven | Parent multi-module đã khai báo 9 modules, Java 21 và dependency BOM | Tiếp tục pin dependency/image theo compatibility matrix khi mỗi phase thêm runtime |
-| Java | Maven compiler và CI đã chốt Java 21; môi trường local kiểm tra dùng OpenJDK 21.0.12.1 | Giữ Java 21 làm baseline và xác minh runtime riêng cho Flink ở Phase 5 |
-| Source modules | Phase 0–4 đã có contracts/migrations, transaction API, generator, outbox publisher và Kafka local infrastructure | Streaming, sinks, analytics và batch vẫn là planned work |
-| Build baseline | Ở mốc Phase 4, full reactor `mvn verify` pass 22 tests; Compose/script validation và live smoke gate cũng pass | CI phải tiếp tục tái lập Maven + Compose config; downstream modules rỗng chưa được tính là implemented |
-| Runtime/deployment | Compose chạy PostgreSQL, Kafka KRaft, transaction service, publisher và one-shot topic bootstrap; Phase 4 smoke kiểm tra đường API → Kafka | Flink, lake, warehouse và full-platform E2E vẫn chưa được triển khai |
+| Java | Maven compiler, CI và Flink image đều chốt Java 21; local Maven dùng OpenJDK 21.0.12.1 | Giữ Java 21 làm baseline và kiểm tra lại khi nâng Flink/connector |
+| Source modules | Phase 0–5 đã có contracts/migrations, transaction API, generator, outbox publisher, Kafka và Flink streaming | Lake, warehouse, analytics và batch vẫn là planned work |
+| Build baseline | Full reactor `mvn verify` pass 35 tests; Compose/script validation và live Phase 5 smoke đều pass | CI phải tiếp tục tái lập Maven + Compose config; downstream modules rỗng chưa được tính là implemented |
+| Runtime/deployment | Compose đã chạy PostgreSQL, Kafka KRaft, API/publisher và Flink JobManager/TaskManager; smoke test xác nhận checkpoint recovery sau restart | Lake, warehouse và full-platform E2E vẫn chưa được triển khai |
 
 Các mục trong tài liệu dùng ba trạng thái: **planned** (kế hoạch), **implemented** (đã có code/config), và **verified** (đã chạy kiểm chứng). Chỉ được đánh dấu `verified` khi có lệnh, log hoặc artifact tái hiện được. Không dùng số liệu benchmark mục tiêu như số liệu thực tế.
 
@@ -553,6 +553,8 @@ Các rule chỉ là **demo**, không được xem là hệ thống fraud/AML th�
 - So sánh expected vs actual aggregate counts.
 
 **Exit gate:** valid/invalid routing đúng; alert theo rule; restart phục hồi state và không nhân đôi warehouse.
+
+**Trạng thái 2026-10-17:** implemented và verified trong một Flink application với validation, dedup theo `event_id`, watermark bounded 15 giây, configurable partition idleness, late path 30 giây, `HIGH_VALUE`, sliding `VELOCITY_60S` và tumbling aggregate 1 phút theo currency. Kafka sinks dùng transaction gắn với checkpoint; operator UIDs ổn định và dedup state có test snapshot/restore. Source mặc định resume committed offsets với earliest fallback; isolated smoke run dùng group riêng và latest offsets. Compose pin Flink 2.1.3/Java 21 cùng Kafka connector 5.0.0-2.1 và Kafka client 4.2.0, lưu checkpoint trong named volume local và submit job theo cách idempotent. Full reactor pass 35 tests; hai live smoke runs liên tiếp đã xác nhận valid/invalid/late routing trên ba Kafka partitions, fraud/aggregate outputs và phục hồi state không phát lại duplicate sau TaskManager restart. Local filesystem checkpoint chỉ dành cho demo một host. Phần “không nhân đôi warehouse” chỉ có thể nghiệm thu đầy đủ ở Phase 7; Phase 5 chỉ chứng minh không phát lại output Kafka do checkpoint/restart và không đếm duplicate vào stateful rules/windows.
 
 ## 11. Phase 6 — MinIO Data Lake
 

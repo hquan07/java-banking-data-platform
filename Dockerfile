@@ -17,14 +17,16 @@ COPY services/warehouse-writer/pom.xml services/warehouse-writer/pom.xml
 COPY services/batch-processor/pom.xml services/batch-processor/pom.xml
 COPY services/analytics-service/pom.xml services/analytics-service/pom.xml
 
-RUN test -n "${MODULE}" \
+RUN --mount=type=cache,target=/root/.m2 \
+    test -n "${MODULE}" \
     && test -n "${ARTIFACT}" \
     && mvn -B -ntp -pl "${MODULE}" -am dependency:go-offline
 
 COPY common/src common/src
 COPY services services
 
-RUN mvn -B -ntp -pl "${MODULE}" -am -DskipTests package \
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -ntp -pl "${MODULE}" -am -Dmaven.test.skip=true package \
     && cp "${MODULE}/target/${ARTIFACT}" /tmp/application.jar
 
 FROM eclipse-temurin:21.0.9_10-jre

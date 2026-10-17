@@ -67,6 +67,35 @@ docker compose exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap
 
 Use `docker compose restart kafka` for a non-destructive restart test. Use `docker compose down` to stop the stack while retaining named volumes. Never use `docker compose down -v` during ordinary troubleshooting because it deletes PostgreSQL and Kafka state.
 
+## Flink streaming runtime (Phase 5)
+
+Build and start the single-host Flink cluster, then submit the job:
+
+```bash
+make up-streaming
+docker compose ps -a
+curl --fail http://127.0.0.1:18084/jobs/overview
+```
+
+`flink-submit` is one-shot and must exit with code 0. The submit script does not create a duplicate when `banking-phase5-streaming` is already active. The JobManager and TaskManager remain running; the dashboard is local-only on `127.0.0.1:18084`.
+
+Run `./scripts/smoke-test-phase5.sh` after changing contracts, streaming code, Kafka/Flink versions, checkpoint/watermark settings or Compose. The test checks valid/invalid/late routing, deduplication, both fraud rules, the one-minute aggregate and state recovery after a TaskManager restart. Each run recreates only JobManager/TaskManager, uses a unique consumer group with `STREAMING_STARTING_OFFSETS=LATEST`, sends watermark markers to all three raw-topic partitions and synchronizes with completed checkpoints. This isolates assertions from retained Kafka data without deleting any named volume. It uses only synthetic records and leaves services/volumes running for inspection.
+
+Normal runtime keeps `STREAMING_STARTING_OFFSETS=COMMITTED_OR_EARLIEST`: restore committed group offsets and fall back to the earliest retained record only when no commit exists. `LATEST` is an explicit smoke-test/bootstrap option and can skip retained events, so do not enable it for the regular streaming group.
+
+Useful diagnostics:
+
+```bash
+docker compose logs flink-jobmanager flink-taskmanager flink-submit
+docker compose exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server kafka:9092 --group banking-streaming-v1 --describe
+curl --fail http://127.0.0.1:18084/jobs/overview
+```
+
+If the job is not `RUNNING`, inspect JobManager and TaskManager logs before resubmitting. If checkpoints fail, verify that `flink-checkpoints` is mounted by both Flink services and writable by the `flink` user. Do not delete the volume as a recovery shortcut: it contains the local recovery state. The default checkpoint URI is intentionally local-demo-only and must be replaced with a verified durable object-store configuration before distributed deployment.
+
+For a non-destructive recovery drill, run `docker compose restart flink-taskmanager`, wait for the job to return to `RUNNING`, and confirm a later checkpoint completes. Output consumers must use `isolation.level=read_committed` because the Kafka sinks commit with checkpoints.
+
 ## Planned procedures
 
-Backup/restore, operator-driven outbox replay, DLQ handling, Flink recovery, warehouse recovery and data mismatch procedures remain planned. Automated outbox retry through a temporary Kafka outage and the Phase 4 Compose startup/topic/offset path are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.
+Backup/restore, operator-driven outbox replay, DLQ disposition, durable multi-host Flink recovery, warehouse recovery and data mismatch procedures remain planned. Automated outbox retry, the Phase 4 Compose path and local TaskManager/checkpoint recovery are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.

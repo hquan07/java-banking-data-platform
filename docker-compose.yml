@@ -145,9 +145,85 @@ services:
     restart: "no"
     networks: [banking]
 
+  flink-jobmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        rest.address: flink-jobmanager
+        rest.bind-address: 0.0.0.0
+        parallelism.default: ${STREAMING_PARALLELISM:-1}
+    ports:
+      - "127.0.0.1:${FLINK_DASHBOARD_HOST_PORT:-18084}:8081"
+    volumes:
+      - flink-checkpoints:/opt/flink/checkpoints
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://localhost:8081/overview >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+    networks: [banking]
+
+  flink-taskmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: ${FLINK_TASK_SLOTS:-2}
+        parallelism.default: ${STREAMING_PARALLELISM:-1}
+    volumes:
+      - flink-checkpoints:/opt/flink/checkpoints
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [banking]
+
+  flink-submit:
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
+    entrypoint: ["/bin/bash", "/opt/banking/submit-flink-job.sh"]
+    environment:
+      FLINK_JOBMANAGER: flink-jobmanager:8081
+      FLINK_JOB_NAME: banking-phase5-streaming
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      STREAMING_GROUP_ID: ${STREAMING_GROUP_ID:-banking-streaming-v1}
+      STREAMING_STARTING_OFFSETS: ${STREAMING_STARTING_OFFSETS:-COMMITTED_OR_EARLIEST}
+      CHECKPOINT_INTERVAL: ${CHECKPOINT_INTERVAL:-PT5S}
+      CHECKPOINT_DIRECTORY: file:///opt/flink/checkpoints
+      WATERMARK_OUT_OF_ORDERNESS: ${WATERMARK_OUT_OF_ORDERNESS:-PT15S}
+      WATERMARK_IDLENESS: ${WATERMARK_IDLENESS:-PT5S}
+      ALLOWED_LATENESS: ${ALLOWED_LATENESS:-PT30S}
+      DEDUPLICATION_TTL: ${DEDUPLICATION_TTL:-PT24H}
+      HIGH_VALUE_THRESHOLD: ${HIGH_VALUE_THRESHOLD:-100000000.00}
+      VELOCITY_THRESHOLD: ${VELOCITY_THRESHOLD:-10}
+      STREAMING_PARALLELISM: ${STREAMING_PARALLELISM:-1}
+    volumes:
+      - ./scripts/submit-flink-job.sh:/opt/banking/submit-flink-job.sh:ro
+      - flink-checkpoints:/opt/flink/checkpoints
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      flink-jobmanager:
+        condition: service_healthy
+      flink-taskmanager:
+        condition: service_started
+    restart: "no"
+    networks: [banking]
+
 volumes:
   postgres-oltp-data:
   kafka-data:
+  flink-checkpoints:
 
 networks:
   banking:
