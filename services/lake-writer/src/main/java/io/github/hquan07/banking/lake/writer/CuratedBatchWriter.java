@@ -13,6 +13,7 @@ import io.github.hquan07.banking.lake.model.ValidatedLakeEvent;
 import io.github.hquan07.banking.lake.storage.LakeObjectStore;
 import io.github.hquan07.banking.lake.storage.ManifestCommitter;
 import io.github.hquan07.banking.lake.util.BatchSupport;
+import io.github.hquan07.banking.lake.util.Hashes;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -90,12 +91,17 @@ public class CuratedBatchWriter implements LakeBatchSink {
         Map<UUID, ParquetBatchCodec.CuratedRecord> unique = new LinkedHashMap<>();
         for (KafkaEnvelope record : records) {
             try {
-                ValidatedLakeEvent validated = objectMapper.readValue(record.payload(), ValidatedLakeEvent.class);
-                if (validated.event() == null || validated.payloadHash() == null) {
-                    throw new IllegalArgumentException("validated event metadata is incomplete");
-                }
+                TransactionCreatedEvent event = objectMapper.readValue(record.payload(), TransactionCreatedEvent.class);
+                ValidatedLakeEvent validated = new ValidatedLakeEvent(
+                        event,
+                        record.topic(),
+                        record.partition(),
+                        record.offset(),
+                        record.timestamp(),
+                        Hashes.sha256(record.payload())
+                );
                 unique.putIfAbsent(
-                        validated.event().eventId(),
+                        event.eventId(),
                         new ParquetBatchCodec.CuratedRecord(record, validated)
                 );
             } catch (Exception exception) {

@@ -1,4 +1,4 @@
-.PHONY: verify compose-config up up-streaming up-lake down topics smoke smoke-streaming smoke-lake logs
+.PHONY: verify compose-config up up-streaming up-lake up-warehouse down topics smoke smoke-streaming smoke-lake smoke-warehouse logs
 
 verify:
 	mvn -B -ntp clean verify
@@ -15,6 +15,9 @@ up-streaming:
 up-lake:
 	docker compose up -d --build kafka kafka-init minio minio-init lake-writer
 
+up-warehouse:
+	docker compose up -d --build kafka kafka-init warehouse-postgres warehouse-writer
+
 down:
 	docker compose down
 
@@ -30,5 +33,8 @@ smoke-streaming:
 smoke-lake:
 	./scripts/smoke-test-phase6.sh
 
+smoke-warehouse:
+	./scripts/smoke-test-phase7.sh
+
 logs:
-	docker compose logs -f transaction-service outbox-publisher kafka flink-jobmanager flink-taskmanager minio lake-writer
+	docker compose logs -f transaction-service outbox-publisher kafka flink-jobmanager flink-taskmanager minio lake-writer warehouse-postgres warehouse-writer

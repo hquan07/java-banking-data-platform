@@ -615,6 +615,8 @@ agg_daily_transactions(date_key, currency, transaction_count, total_amount, ...)
 
 Reconciliation phải lưu kết quả thay vì chỉ in ra log: source topic/offset range, raw/valid/invalid/unique counts, warehouse inserted/updated/rejected counts, tổng tiền theo currency và sai lệch. Khi thiếu dimension hoặc gặp currency không được hỗ trợ, chọn rõ một policy (quarantine/DLQ hoặc reject) và đo vào báo cáo; không tự động bỏ qua.
 
+**Trạng thái 2026-10-18:** implemented và verified cho local demo. PostgreSQL warehouse chạy tách biệt OLTP, Flyway tạo star schema, streaming window aggregate, bảng daily đích cho Phase 8, delivery ledger, quarantine, transactional DLQ outbox và reconciliation audit. Writer dùng ba consumer group độc lập cho validated/fraud/aggregate; mỗi poll upsert business grain + Kafka marker + reconciliation trong một DB transaction, rồi mới commit Kafka offsets. Replay cùng offset được chặn bởi delivery ledger; replay ở offset mới được chặn ở business ID. Testcontainers và live Kafka→PostgreSQL smoke đều đã replay 1.000 giao dịch hai lần mà vẫn giữ nguyên 1.000 facts/tổng tiền; live smoke cũng xác nhận fraud, window aggregate, reconciliation, quarantine và DLQ publication. Chính sách dimension hiện tại là tạo account inferred gắn với customer `UNKNOWN` vì contract v1 chưa có customer; mọi currency đúng định dạng ba chữ hoa được chấp nhận nhưng luôn tổng hợp tách biệt, còn event cố đổi currency của account đã tồn tại sẽ bị quarantine/reject. Payload sai contract được lưu quarantine và phát DLQ qua outbox. `agg_daily_transactions` chỉ là target rỗng; Phase 8 là writer authoritative duy nhất.
+
 ## 13. Phase 8 — Java Batch ETL và Airflow
 
 ### 13.1 Batch CLI

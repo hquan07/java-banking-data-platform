@@ -1,6 +1,6 @@
 # Architecture
 
-The target architecture and failure boundaries are described in `docs/IMPLEMENTATION.md`, section 3. The implemented vertical slice now covers the transaction API, outbox publication, Kafka infrastructure, Flink streaming and MinIO data lake through Phase 6.
+The target architecture and failure boundaries are described in `docs/IMPLEMENTATION.md`, section 3. The implemented vertical slice now covers the transaction API, outbox publication, Kafka infrastructure, Flink streaming, MinIO data lake and PostgreSQL warehouse through Phase 7.
 
 ## Transaction API and transactional outbox
 
@@ -64,10 +64,10 @@ Required diagrams:
 1. API transaction plus transactional outbox — implemented and integration-tested.
 2. Outbox-to-Kafka publish and retry — implemented and integration-tested.
 3. Kafka-to-Flink validation/fraud/aggregation — implemented and tested with checkpoint recovery.
-4. Lake sink idempotency and replay — implemented and tested; warehouse sink remains planned.
+4. Lake and warehouse sink idempotency and replay — implemented and tested.
 5. Batch reconciliation and report publication — planned.
 
-## Phase 4–6 local runtime topology
+## Phase 4–7 local runtime topology
 
 ```mermaid
 flowchart LR
@@ -84,6 +84,8 @@ flowchart LR
     K --> LW[lake-writer]
     LW --> M[(MinIO banking-lake)]
     MI[minio-init one-shot] --> M
+    K --> WW[warehouse-writer]
+    WW --> WH[(PostgreSQL warehouse)]
 ```
 
 Kafka has separate listeners for the Docker network (`kafka:9092`) and the host (`localhost:9092`). Auto topic creation is disabled; the one-shot init service applies the checked-in topic manifest before producers and Flink start. PostgreSQL, Kafka and Flink checkpoint state use named volumes and are preserved by a normal `docker compose down`.
@@ -97,3 +99,9 @@ Kafka sinks use transactions tied to Flink checkpoints. This covers replay cause
 The lake writer reads the raw and validated topics with separate consumer groups. Raw batches become compressed JSONL in `bronze/transactions/ingest_date=...`; each row preserves the exact payload bytes plus topic, partition, offset, Kafka timestamp and SHA-256. Validated batches become typed Avro-backed Parquet in `silver/transactions/event_date=...` and daily aggregate partials in `gold/daily_transactions/report_date=...`.
 
 The writer derives a deterministic batch ID from layer, source offsets and payload hashes. It writes and verifies all data objects first, writes `_manifests/{layer}/batch_id=...json` last as the commit marker, and commits Kafka offsets only after storage succeeds. Reprocessing the same records therefore reuses byte-identical objects; an existing key with a different checksum is treated as corruption/collision and fails closed. This protocol provides replay-safe local object publication, not a distributed exactly-once claim. Gold files are deliberately marked partial until Phase 8 performs deterministic daily compaction.
+
+## Phase 7 warehouse commit flow
+
+Validated transactions, fraud alerts and one-minute aggregates are consumed by three independent groups. For each poll, the writer opens one PostgreSQL transaction, claims each `(topic, partition, offset)`, resolves inferred date/account dimensions, upserts the business grain, persists rejects and DLQ-outbox rows when needed, and writes a reconciliation run containing source offset ranges, counts, per-currency totals and deviation. Only after that transaction commits does the consumer commit Kafka offsets.
+
+Two levels of idempotency are intentional: the processed-record primary key protects a redelivery at the same Kafka offset, while transaction, alert and aggregate IDs protect a replay published at new offsets. Database failures roll the whole batch back and cause a seek/retry. Invalid contracts and account/currency dimension conflicts are non-retryable: they are quarantined with the raw bytes and a sanitized error, then a deterministic failure record is published from the database outbox to the platform DLQ. The warehouse accepts every contract-valid three-letter currency but never combines currencies or changes an existing account's currency implicitly. Accounts missing from a dimension source are attached to the explicit inferred `UNKNOWN` customer until a future authoritative dimension feed enriches them.

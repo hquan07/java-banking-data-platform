@@ -101,14 +101,12 @@ wait_for_group "${raw_group}" banking.transactions.raw
 wait_for_group "${curated_group}" banking.transactions.validated
 
 python3 - "${tmp_dir}/raw.input" "${tmp_dir}/validated.input" "${account_id}" "${run_id}" <<'PY'
-import hashlib
 import json
 import sys
 import time
 import uuid
 
 raw_path, validated_path, account, run_id = sys.argv[1:]
-now_ms = int(time.time() * 1000)
 with open(raw_path, "w", encoding="utf-8") as raw_file, open(validated_path, "w", encoding="utf-8") as validated_file:
     for index, status in enumerate(("SUCCESS", "FAILED", "SUCCESS")):
         event = {
@@ -127,15 +125,7 @@ with open(raw_path, "w", encoding="utf-8") as raw_file, open(validated_path, "w"
         }
         payload = json.dumps(event, separators=(",", ":"))
         raw_file.write(f"{account}\t{payload}\n")
-        validated = {
-            "event": event,
-            "sourceTopic": "banking.transactions.raw",
-            "sourcePartition": 0,
-            "sourceOffset": 1000 + index,
-            "sourceTimestamp": now_ms + index,
-            "payloadHash": hashlib.sha256(payload.encode()).hexdigest(),
-        }
-        validated_file.write(f"{account}\t{json.dumps(validated, separators=(',', ':'))}\n")
+        validated_file.write(f"{account}\t{payload}\n")
 PY
 
 produce_file banking.transactions.raw "${tmp_dir}/raw.input"

@@ -19,6 +19,24 @@ services:
     restart: unless-stopped
     networks: [banking]
 
+  warehouse-postgres:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_WAREHOUSE_DB:-banking_warehouse}
+      POSTGRES_USER: ${WAREHOUSE_DB_USERNAME:-banking_warehouse}
+      POSTGRES_PASSWORD: ${WAREHOUSE_DB_PASSWORD:-change-me-warehouse-local-only}
+    ports:
+      - "127.0.0.1:${WAREHOUSE_POSTGRES_PORT:-55433}:5432"
+    volumes:
+      - postgres-warehouse-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [banking]
+
   kafka:
     image: apache/kafka:4.3.1
     hostname: kafka
@@ -307,8 +325,45 @@ services:
     restart: unless-stopped
     networks: [banking]
 
+  warehouse-writer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: services/warehouse-writer
+        ARTIFACT: warehouse-writer-0.1.0-SNAPSHOT.jar
+    environment:
+      WAREHOUSE_WRITER_ENABLED: "true"
+      WAREHOUSE_DB_URL: jdbc:postgresql://warehouse-postgres:5432/${POSTGRES_WAREHOUSE_DB:-banking_warehouse}
+      WAREHOUSE_DB_USERNAME: ${WAREHOUSE_DB_USERNAME:-banking_warehouse}
+      WAREHOUSE_DB_PASSWORD: ${WAREHOUSE_DB_PASSWORD:-change-me-warehouse-local-only}
+      WAREHOUSE_DB_MAX_POOL_SIZE: ${WAREHOUSE_DB_MAX_POOL_SIZE:-10}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WAREHOUSE_VALIDATED_GROUP_ID: ${WAREHOUSE_VALIDATED_GROUP_ID:-banking-warehouse-validated-v1}
+      WAREHOUSE_FRAUD_GROUP_ID: ${WAREHOUSE_FRAUD_GROUP_ID:-banking-warehouse-fraud-v1}
+      WAREHOUSE_AGGREGATES_GROUP_ID: ${WAREHOUSE_AGGREGATES_GROUP_ID:-banking-warehouse-aggregates-v1}
+      WAREHOUSE_STARTING_OFFSETS: ${WAREHOUSE_STARTING_OFFSETS:-earliest}
+      WAREHOUSE_MAX_POLL_RECORDS: ${WAREHOUSE_MAX_POLL_RECORDS:-500}
+      WAREHOUSE_POLL_TIMEOUT: ${WAREHOUSE_POLL_TIMEOUT:-500ms}
+      WAREHOUSE_RETRY_BACKOFF: ${WAREHOUSE_RETRY_BACKOFF:-2s}
+      WAREHOUSE_DLQ_PUBLISH_INTERVAL: ${WAREHOUSE_DLQ_PUBLISH_INTERVAL:-1s}
+      WAREHOUSE_SERVER_PORT: 8088
+      WAREHOUSE_MANAGEMENT_PORT: 8089
+      WAREHOUSE_MANAGEMENT_ADDRESS: 0.0.0.0
+    ports:
+      - "127.0.0.1:${WAREHOUSE_HOST_PORT:-18088}:8088"
+      - "127.0.0.1:${WAREHOUSE_MANAGEMENT_HOST_PORT:-18089}:8089"
+    depends_on:
+      warehouse-postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [banking]
+
 volumes:
   postgres-oltp-data:
+  postgres-warehouse-data:
   kafka-data:
   flink-checkpoints:
   minio-data:

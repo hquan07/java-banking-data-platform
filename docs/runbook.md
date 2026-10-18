@@ -131,6 +131,34 @@ Treat `_manifests/{bronze|curated}/batch_id=...json` with `status=COMMITTED` as 
 
 Use `docker compose restart lake-writer` or `docker compose down` for non-destructive operations. Never use `docker compose down -v` during normal troubleshooting: `minio-data` contains the lake. Gold output in this phase is explicitly partial and must not be treated as the authoritative daily report until Phase 8 compaction/finalization is implemented.
 
+## PostgreSQL warehouse runtime (Phase 7)
+
+Start Kafka, the isolated warehouse database and the writer:
+
+```bash
+make up-warehouse
+docker compose ps -a
+curl --fail http://127.0.0.1:18089/actuator/health/readiness
+```
+
+Expected state: Kafka and `warehouse-postgres` are healthy, `kafka-init` exits 0, Flyway applies the warehouse migration, and `warehouse-writer` remains running. The database is local-only on `127.0.0.1:55433`; the management endpoint is local-only on `127.0.0.1:18089`.
+
+Run `make smoke-warehouse` after changes to contracts, migration SQL, writer logic, topic configuration or Compose. It creates isolated latest-offset consumer groups, publishes 1,000 canonical validated transactions twice, and proves that `COUNT(*)` and `SUM(amount)` at the transaction grain remain unchanged. It also checks fraud/window facts, persisted reconciliation, malformed quarantine and successful DLQ-outbox publication. The script retains the Kafka and warehouse named volumes.
+
+Useful diagnostics:
+
+```bash
+docker compose logs warehouse-postgres warehouse-writer
+docker compose exec -T warehouse-postgres psql -U banking_warehouse -d banking_warehouse \
+  -c 'SELECT * FROM warehouse_reconciliation_runs ORDER BY finished_at DESC LIMIT 10'
+docker compose exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server kafka:9092 --group banking-warehouse-validated-v1 --describe
+```
+
+A database failure intentionally leaves Kafka offsets uncommitted; restore database availability and let the writer retry. A schema/business parse failure is not retried: inspect `warehouse_rejections`, the matching `warehouse_dlq_outbox` row and the DLQ event. Do not manually advance group offsets or mark outbox rows published. Replays are safe at both the source-coordinate and business-ID levels.
+
+Use `docker compose restart warehouse-writer` or `docker compose down` for non-destructive operations. Never use `docker compose down -v` during ordinary troubleshooting because `postgres-warehouse-data` contains facts, offset markers, rejects and reconciliation evidence. Backup/restore is not yet production-certified.
+
 ## Planned procedures
 
-Backup/restore, operator-driven outbox replay, orphan-object disposition, DLQ disposition, durable multi-host Flink recovery, warehouse recovery and data mismatch procedures remain planned. Automated outbox retry, the Phase 4 Compose path, local TaskManager/checkpoint recovery and Phase 6 deterministic lake replay are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.
+Backup/restore, operator-driven outbox replay, orphan-object disposition, DLQ disposition, durable multi-host Flink recovery and production warehouse recovery remain planned. Automated outbox retry, the Phase 4 Compose path, local TaskManager/checkpoint recovery, Phase 6 deterministic lake replay and Phase 7 warehouse replay are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.

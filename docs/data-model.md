@@ -1,6 +1,6 @@
 # Data Model
 
-Phase 1 introduces the OLTP schema used by the future transaction API and outbox publisher. It is deliberately separate from the analytical star schema planned for Phase 7.
+The platform uses physically separate OLTP and analytical PostgreSQL databases. Phase 1 owns the OLTP schema; Phase 7 owns the warehouse star schema.
 
 ```mermaid
 erDiagram
@@ -70,3 +70,22 @@ The migrations live under `services/transaction-service/src/main/resources/db/mi
 Migrations are forward-only. Never edit a migration that has run in a shared environment. Correct schema defects with a new migration. Before a production migration, take a database backup and record the Flyway state; recovery is restore-to-new-instance plus application rollback, not an ad-hoc reverse script.
 
 The Phase 1 integration test starts an empty PostgreSQL 17.11 instance, applies both migrations and exercises unique and check constraints. When Docker is unavailable, the test is explicitly skipped rather than reported as passed; the resource-level migration test still runs.
+
+## Warehouse star schema (Phase 7)
+
+```mermaid
+erDiagram
+    DIM_CUSTOMER ||--o{ DIM_ACCOUNT : owns
+    DIM_ACCOUNT ||--o{ FACT_TRANSACTIONS : classifies
+    DIM_DATE ||--o{ FACT_TRANSACTIONS : dates
+    DIM_ACCOUNT ||--o{ FACT_FRAUD_ALERTS : classifies
+    DIM_DATE ||--o{ FACT_FRAUD_ALERTS : dates
+    DIM_DATE ||--o{ AGG_TRANSACTION_WINDOWS : dates
+    DIM_DATE ||--o{ AGG_DAILY_TRANSACTIONS : dates
+```
+
+`fact_transactions` has exactly one row per `transaction_id`; `event_id` is also unique. `fact_fraud_alerts` has one row per `alert_id` and links to a transaction when the referenced event has already arrived. `agg_transaction_windows` stores the streaming one-minute grain keyed by `aggregate_id`/`window_key`. `agg_daily_transactions` has the final `(date_key, currency)` grain but remains empty until Phase 8 writes it with an audited `batch_run_id`.
+
+`processed_kafka_records` is the delivery ledger. `warehouse_rejections` retains malformed raw bytes, while `warehouse_dlq_outbox` guarantees that quarantine and DLQ intent commit atomically with the consumed offset. `warehouse_reconciliation_runs` persists source ranges, raw/valid/invalid/unique and inserted/updated/rejected counts, duplicate deliveries, source/accepted totals per currency, and amount deviation.
+
+Because the v1 transaction event has `account_id` but no customer attributes, a missing account is inferred and linked to the explicit `UNKNOWN` customer. All contract-valid uppercase three-letter currencies are accepted and measured independently; cross-currency sums are forbidden without an explicit exchange-rate model. Once inferred, an account's currency is immutable in this writer; a conflicting event is quarantined and counted as rejected instead of silently rewriting the dimension.

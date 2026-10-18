@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: warehouse-writer
+  datasource:
+    url: ${WAREHOUSE_DB_URL:jdbc:postgresql://localhost:55433/banking_warehouse}
+    username: ${WAREHOUSE_DB_USERNAME:banking_warehouse}
+    password: ${WAREHOUSE_DB_PASSWORD:change-me-warehouse-local-only}
+    hikari:
+      maximum-pool-size: ${WAREHOUSE_DB_MAX_POOL_SIZE:10}
+      connection-timeout: ${WAREHOUSE_DB_CONNECTION_TIMEOUT_MS:3000}
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+
+server:
+  port: ${WAREHOUSE_SERVER_PORT:8088}
+
+management:
+  server:
+    port: ${WAREHOUSE_MANAGEMENT_PORT:8089}
+    address: ${WAREHOUSE_MANAGEMENT_ADDRESS:127.0.0.1}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+
+warehouse:
+  enabled: ${WAREHOUSE_WRITER_ENABLED:false}
+  kafka-bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  validated-topic: ${WAREHOUSE_VALIDATED_TOPIC:banking.transactions.validated}
+  fraud-topic: ${WAREHOUSE_FRAUD_TOPIC:banking.transactions.fraud-alerts}
+  aggregates-topic: ${WAREHOUSE_AGGREGATES_TOPIC:banking.transactions.aggregates}
+  dlq-topic: ${WAREHOUSE_DLQ_TOPIC:banking.transactions.dlq}
+  validated-group-id: ${WAREHOUSE_VALIDATED_GROUP_ID:banking-warehouse-validated-v1}
+  fraud-group-id: ${WAREHOUSE_FRAUD_GROUP_ID:banking-warehouse-fraud-v1}
+  aggregates-group-id: ${WAREHOUSE_AGGREGATES_GROUP_ID:banking-warehouse-aggregates-v1}
+  max-poll-records: ${WAREHOUSE_MAX_POLL_RECORDS:500}
+  poll-timeout: ${WAREHOUSE_POLL_TIMEOUT:500ms}
+  retry-backoff: ${WAREHOUSE_RETRY_BACKOFF:2s}
+  dlq-publish-interval: ${WAREHOUSE_DLQ_PUBLISH_INTERVAL:1s}
+  starting-offsets: ${WAREHOUSE_STARTING_OFFSETS:earliest}

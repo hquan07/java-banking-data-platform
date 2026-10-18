@@ -8,7 +8,6 @@ import io.github.hquan07.banking.common.event.TransactionStatus;
 import io.github.hquan07.banking.common.event.TransactionType;
 import io.github.hquan07.banking.lake.model.KafkaEnvelope;
 import io.github.hquan07.banking.lake.model.LakeObjectDescriptor;
-import io.github.hquan07.banking.lake.model.ValidatedLakeEvent;
 import io.github.hquan07.banking.lake.storage.LakeObjectStore;
 import io.github.hquan07.banking.lake.storage.ManifestCommitter;
 import io.github.hquan07.banking.lake.util.Hashes;
@@ -119,21 +118,13 @@ class LakeWritersTest {
 
     private KafkaEnvelope validatedEnvelope(int partition, long offset, TransactionCreatedEvent event)
             throws Exception {
-        ValidatedLakeEvent value = new ValidatedLakeEvent(
-                event,
-                "banking.transactions.raw",
-                partition,
-                offset - 10,
-                Instant.parse("2026-10-17T02:30:00Z").toEpochMilli(),
-                "a".repeat(64)
-        );
         return new KafkaEnvelope(
                 "banking.transactions.validated",
                 partition,
                 offset,
                 Instant.parse("2026-10-17T02:31:00Z").toEpochMilli(),
                 event.accountId(),
-                objectMapper.writeValueAsBytes(value)
+                objectMapper.writeValueAsBytes(event)
         );
     }
 

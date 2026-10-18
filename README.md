@@ -4,7 +4,7 @@ Local portfolio data platform for synthetic banking transactions, implemented in
 
 ## Current status
 
-Phases 0–6 are implemented. The local stack includes PostgreSQL 17.11, Kafka 4.3.1 KRaft, the transaction API/outbox publisher, a Flink 2.1.3 streaming job and a MinIO-backed data lake. The streaming job validates and deduplicates raw events, routes invalid/late failures, emits demo fraud alerts and builds event-time aggregates. The independent lake writer stores traceable raw micro-batches in Bronze and typed Parquet in Silver plus provisional daily partials in Gold.
+Phases 0–7 are implemented. The local stack includes separate PostgreSQL 17.11 OLTP and warehouse databases, Kafka 4.3.1 KRaft, the transaction API/outbox publisher, a Flink 2.1.3 streaming job, a MinIO-backed data lake and an idempotent warehouse writer. The streaming job validates and deduplicates raw events, routes invalid/late failures, emits demo fraud alerts and builds event-time aggregates. The lake writer stores traceable raw micro-batches in Bronze and typed Parquet in Silver plus provisional daily partials in Gold. The warehouse writer persists transaction/fraud/window facts, dimensions, Kafka offset markers, rejects and reconciliation evidence.
 
 ## Repository layout
 
@@ -17,7 +17,7 @@ Phases 0–6 are implemented. The local stack includes PostgreSQL 17.11, Kafka 4
 
 - JDK 21
 - Maven 3.8.7 or newer
-- Docker Engine and Docker Compose v2 for the local Kafka/Flink/MinIO runtime
+- Docker Engine and Docker Compose v2 for the local Kafka/Flink/MinIO/PostgreSQL runtime
 
 ## Verify the current implementation
 
@@ -73,7 +73,7 @@ java -jar services/outbox-publisher/target/outbox-publisher-0.1.0-SNAPSHOT.jar
 
 Publisher health and Prometheus metrics default to the local-only listener on port `8083`. The publisher retains failed rows and later retries them; it never deletes outbox events.
 
-## Local Phase 4–6 stack
+## Local Phase 4–7 stack
 
 Start the Kafka/PostgreSQL/API/publisher stack and create all governed topics:
 
@@ -132,8 +132,28 @@ make smoke-lake
 
 The test publishes three synthetic raw and validated records, checks exactly one data object per layer and one commit manifest per batch, verifies Kafka source coordinates/checksums in Bronze, and reads the live Silver Parquet object back through the Java reader. Data is retained in the `minio-data` named volume. Gold objects are replay-safe daily partials; Phase 8 will compact/finalize them into authoritative daily reports.
 
+## PostgreSQL warehouse (Phase 7)
+
+Start Kafka, the separate warehouse database and the writer:
+
+```bash
+make up-warehouse
+docker compose ps -a
+curl --fail http://127.0.0.1:18089/actuator/health/readiness
+```
+
+The warehouse database is bound to `127.0.0.1:55433` and uses the independent `postgres-warehouse-data` named volume. The writer consumes validated transactions, fraud alerts and one-minute aggregates with separate consumer groups. Each batch commits business upserts, source offset markers, rejects and a reconciliation row in one database transaction before committing Kafka offsets. Malformed records are quarantined and staged in a transactional DLQ outbox.
+
+Run the replay acceptance gate:
+
+```bash
+make smoke-warehouse
+```
+
+It publishes 1,000 transactions twice and verifies that fact count and monetary sum do not increase, then verifies fraud, window aggregate, persisted reconciliation, quarantine and DLQ publication. It preserves all named volumes.
+
 ## Next implementation gate
 
-The next gate is Phase 7: an idempotent PostgreSQL warehouse writer and star schema. Phase 6 does not claim warehouse-level duplicate protection, final daily Gold compaction or production-grade object-store encryption.
+The next gate is Phase 8: Java batch ETL and Airflow orchestration. Phase 7 creates but does not populate the authoritative `agg_daily_transactions` table; only the Phase 8 audited batch job may finalize daily Gold and that table.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full plan and acceptance gates.

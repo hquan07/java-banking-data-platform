@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 FROM maven:3.9.11-eclipse-temurin-21 AS build
 
 ARG MODULE
@@ -17,10 +15,7 @@ COPY services/warehouse-writer/pom.xml services/warehouse-writer/pom.xml
 COPY services/batch-processor/pom.xml services/batch-processor/pom.xml
 COPY services/analytics-service/pom.xml services/analytics-service/pom.xml
 
-RUN --mount=type=cache,target=/root/.m2 \
-    test -n "${MODULE}" \
-    && test -n "${ARTIFACT}" \
-    && mvn -B -ntp -pl "${MODULE}" -am dependency:go-offline
+RUN test -n "${MODULE}" && test -n "${ARTIFACT}"
 
 COPY common/src common/src
 COPY services services
