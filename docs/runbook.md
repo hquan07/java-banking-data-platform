@@ -96,6 +96,41 @@ If the job is not `RUNNING`, inspect JobManager and TaskManager logs before resu
 
 For a non-destructive recovery drill, run `docker compose restart flink-taskmanager`, wait for the job to return to `RUNNING`, and confirm a later checkpoint completes. Output consumers must use `isolation.level=read_committed` because the Kafka sinks commit with checkpoints.
 
+## MinIO data lake runtime (Phase 6)
+
+Build and start Kafka, MinIO, the idempotent bootstrap and the lake writer:
+
+```bash
+make up-lake
+docker compose ps -a
+curl --fail http://127.0.0.1:18087/actuator/health/readiness
+```
+
+The first MinIO image build compiles the pinned Community Server and `mc` releases from source and can take several minutes. Expected state: Kafka and MinIO are healthy, `kafka-init` and `minio-init` exit with code 0, and `lake-writer` remains running. The S3 API and console are local-only at ports `19000` and `19001`. Re-running `docker compose run --rm minio-init` is safe and reapplies private bucket, versioning, writer policy and lifecycle configuration without deleting objects.
+
+Run the acceptance path after changing the writer, schemas, object layout, MinIO build/policy or Compose configuration:
+
+```bash
+make smoke-lake
+```
+
+The smoke test uses unique Kafka groups with latest offsets, publishes three synthetic records to each input topic, and expects one new Bronze object, one Silver object, one Gold partial and one manifest for each writer transaction. It validates raw Kafka coordinates and checksum, then starts a no-consumer verification process that reads the live Silver Parquet file. The test preserves named volumes and objects for inspection.
+
+Useful diagnostics:
+
+```bash
+docker compose logs minio minio-init lake-writer
+docker compose exec -T minio sh -c 'mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"'
+docker compose exec -T minio mc find local/banking-lake
+docker compose exec -T minio mc ilm rule ls local/banking-lake
+docker compose exec -T kafka /opt/kafka/bin/kafka-consumer-groups.sh \
+  --bootstrap-server kafka:9092 --group banking-lake-bronze-v1 --describe
+```
+
+Treat `_manifests/{bronze|curated}/batch_id=...json` with `status=COMMITTED` as the publication marker. A data object without a manifest may be an interrupted attempt; do not delete or promote it manually while the writer is active. Restarting the writer is the first recovery step because deterministic batch IDs make the retry idempotent. If logs report an existing-key checksum mismatch, stop the writer and preserve the object, manifest and source offsets for investigation; do not overwrite the key.
+
+Use `docker compose restart lake-writer` or `docker compose down` for non-destructive operations. Never use `docker compose down -v` during normal troubleshooting: `minio-data` contains the lake. Gold output in this phase is explicitly partial and must not be treated as the authoritative daily report until Phase 8 compaction/finalization is implemented.
+
 ## Planned procedures
 
-Backup/restore, operator-driven outbox replay, DLQ disposition, durable multi-host Flink recovery, warehouse recovery and data mismatch procedures remain planned. Automated outbox retry, the Phase 4 Compose path and local TaskManager/checkpoint recovery are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.
+Backup/restore, operator-driven outbox replay, orphan-object disposition, DLQ disposition, durable multi-host Flink recovery, warehouse recovery and data mismatch procedures remain planned. Automated outbox retry, the Phase 4 Compose path, local TaskManager/checkpoint recovery and Phase 6 deterministic lake replay are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.

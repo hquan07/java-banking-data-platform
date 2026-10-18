@@ -6,15 +6,15 @@
 
 ## 0. Trạng thái hiện tại và nguyên tắc đọc tài liệu
 
-Tài liệu này là **implementation plan**, không phải bằng chứng rằng các thành phần đã tồn tại hoặc đã chạy thành công. Snapshot repository tại **2026-10-16**:
+Tài liệu này là **implementation plan**, không phải bằng chứng rằng các thành phần đã tồn tại hoặc đã chạy thành công. Snapshot repository tại **2026-10-18**:
 
 | Hạng mục | Trạng thái đã xác nhận | Việc cần làm trước khi coi là hoàn thành |
 |---|---|---|
 | Maven | Parent multi-module đã khai báo 9 modules, Java 21 và dependency BOM | Tiếp tục pin dependency/image theo compatibility matrix khi mỗi phase thêm runtime |
 | Java | Maven compiler, CI và Flink image đều chốt Java 21; local Maven dùng OpenJDK 21.0.12.1 | Giữ Java 21 làm baseline và kiểm tra lại khi nâng Flink/connector |
-| Source modules | Phase 0–5 đã có contracts/migrations, transaction API, generator, outbox publisher, Kafka và Flink streaming | Lake, warehouse, analytics và batch vẫn là planned work |
-| Build baseline | Full reactor `mvn verify` pass 35 tests; Compose/script validation và live Phase 5 smoke đều pass | CI phải tiếp tục tái lập Maven + Compose config; downstream modules rỗng chưa được tính là implemented |
-| Runtime/deployment | Compose đã chạy PostgreSQL, Kafka KRaft, API/publisher và Flink JobManager/TaskManager; smoke test xác nhận checkpoint recovery sau restart | Lake, warehouse và full-platform E2E vẫn chưa được triển khai |
+| Source modules | Phase 0–6 đã có contracts/migrations, transaction API, generator, outbox publisher, Kafka, Flink streaming và MinIO lake writer | Warehouse, analytics và batch vẫn là planned work |
+| Build baseline | Full reactor `mvn clean verify` pass 40 tests; Compose/script validation và live Phase 5–6 smoke đều pass | CI phải tiếp tục tái lập Maven + Compose config; downstream modules rỗng chưa được tính là implemented |
+| Runtime/deployment | Compose đã chạy PostgreSQL, Kafka KRaft, API/publisher, Flink và MinIO/lake writer; smoke tests xác nhận checkpoint recovery và lake write/read | Warehouse và full-platform E2E vẫn chưa được triển khai |
 
 Các mục trong tài liệu dùng ba trạng thái: **planned** (kế hoạch), **implemented** (đã có code/config), và **verified** (đã chạy kiểm chứng). Chỉ được đánh dấu `verified` khi có lệnh, log hoặc artifact tái hiện được. Không dùng số liệu benchmark mục tiêu như số liệu thực tế.
 
@@ -582,6 +582,8 @@ banking-lake/
 
 **Exit gate:** upload/list/read được object; raw event truy vết về Kafka offset; Parquet đọc được và partition đúng.
 
+**Trạng thái 2026-10-18:** implemented và verified cho local demo. `lake-writer` dùng hai consumer group độc lập: raw topic được ghi thành gzip JSONL giữ nguyên payload, checksum và Kafka coordinates; validated topic được deduplicate theo `event_id` trong batch rồi ghi Silver Parquet typed và Gold daily partial Parquet. Mỗi batch có ID/path deterministic; data object được PUT và kiểm checksum trước, manifest `COMMITTED` được ghi cuối cùng, sau đó mới commit Kafka offset. Retry cùng batch là idempotent; object trùng path nhưng khác checksum bị từ chối. MinIO bucket private, bật versioning, writer credential chỉ có quyền bucket data cần thiết và lifecycle local lần lượt 30/90/365 ngày. Full reactor pass 40 tests; live smoke đã xác nhận micro-batch không fan-out thành một object mỗi event, đọc lại Parquet, raw traceability và manifest. Gold hiện là partial (`is_partial=true`), chưa phải daily report cuối; Phase 8 chịu trách nhiệm compact/finalize. MinIO Community upstream đã archived, nên release này chỉ được chấp nhận cho local synthetic demo theo ADR 0001; non-local deployment phải chọn/đánh giá lại object store, TLS, KMS encryption, backup và restore.
+
 ## 12. Phase 7 — PostgreSQL Data Warehouse
 
 ### 12.1 Star schema
@@ -837,19 +839,20 @@ Nếu integration/E2E không chạy được vì Docker/registry bị giới h�
 
 ### P0 — MVP bắt buộc
 
-- [ ] Parent Maven project và Java runtime compatibility matrix.
-- [ ] PostgreSQL schema + Flyway migrations.
-- [ ] Transaction API + idempotency + transactional outbox.
-- [ ] Kafka topic bootstrap + publisher retry.
-- [ ] Flink validation + dedup + fraud threshold.
+- [x] Parent Maven project và Java runtime compatibility matrix.
+- [x] PostgreSQL schema + Flyway migrations.
+- [x] Transaction API + idempotency + transactional outbox.
+- [x] Kafka topic bootstrap + publisher retry.
+- [x] Flink validation + dedup + fraud threshold.
 - [ ] Warehouse writer idempotent.
-- [ ] Bronze raw archive trên MinIO.
+- [x] Bronze raw archive trên MinIO.
 - [ ] End-to-end smoke test.
 
 ### P1 — Portfolio hoàn chỉnh
 
-- [ ] Flink event-time windows + state checkpointing.
-- [ ] Silver Parquet + Gold daily reports.
+- [x] Flink event-time windows + state checkpointing.
+- [x] Silver Parquet + replay-safe Gold daily partials.
+- [ ] Gold daily report compaction/finalization.
 - [ ] Java batch + Airflow DAG.
 - [ ] Analytics API.
 - [ ] Prometheus/Grafana dashboards và alerts.

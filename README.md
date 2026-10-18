@@ -4,20 +4,20 @@ Local portfolio data platform for synthetic banking transactions, implemented in
 
 ## Current status
 
-Phases 0–5 are implemented. The local stack includes PostgreSQL 17.11, Kafka 4.3.1 KRaft, the transaction API/outbox publisher and a Flink 2.1.3 streaming job. The job validates and deduplicates raw events, routes invalid/late failures, emits demo fraud alerts and builds event-time aggregates with checkpointed state and exactly-once Kafka sinks.
+Phases 0–6 are implemented. The local stack includes PostgreSQL 17.11, Kafka 4.3.1 KRaft, the transaction API/outbox publisher, a Flink 2.1.3 streaming job and a MinIO-backed data lake. The streaming job validates and deduplicates raw events, routes invalid/late failures, emits demo fraud alerts and builds event-time aggregates. The independent lake writer stores traceable raw micro-batches in Bronze and typed Parquet in Silver plus provisional daily partials in Gold.
 
 ## Repository layout
 
 - `common/`: shared contracts and DTOs.
 - `services/`: transaction API, generator, outbox, streaming, lake, warehouse, batch and analytics modules.
 - `docs/`: implementation plan and architecture/data/operations documents.
-- `infrastructure/`, `warehouse/`, `orchestration/`, `scripts/`, `tests/`: reserved for the corresponding implementation phases.
+- `infrastructure/`, `warehouse/`, `orchestration/`, `scripts/`, `tests/`: runtime configuration, future warehouse/orchestration work and acceptance tooling.
 
 ## Prerequisites
 
 - JDK 21
 - Maven 3.8.7 or newer
-- Docker Engine and Docker Compose v2 for the local Kafka/Flink runtime
+- Docker Engine and Docker Compose v2 for the local Kafka/Flink/MinIO runtime
 
 ## Verify the current implementation
 
@@ -73,7 +73,7 @@ java -jar services/outbox-publisher/target/outbox-publisher-0.1.0-SNAPSHOT.jar
 
 Publisher health and Prometheus metrics default to the local-only listener on port `8083`. The publisher retains failed rows and later retries them; it never deletes outbox events.
 
-## Local Phase 4–5 stack
+## Local Phase 4–6 stack
 
 Start the Kafka/PostgreSQL/API/publisher stack and create all governed topics:
 
@@ -115,8 +115,25 @@ make smoke-streaming
 
 The test recreates only the Flink containers, uses an isolated consumer group starting at the current raw-topic end offsets, then publishes valid, duplicate, invalid, high-value, velocity, watermark and late events. It checks all output topics, restarts the TaskManager and verifies that restored deduplication state still suppresses the duplicate. Kafka/PostgreSQL data and named volumes are not deleted.
 
+Start Kafka, MinIO and the Phase 6 lake writer:
+
+```bash
+make up-lake
+docker compose ps -a
+```
+
+MinIO binds its S3 API to `127.0.0.1:19000`, console to `127.0.0.1:19001`, and the lake-writer management endpoint to `127.0.0.1:18087`. The first build compiles the pinned MinIO Community Server release from source and can take several minutes; later builds use Docker cache. `minio-init` creates a private, versioned `banking-lake` bucket, a bucket-scoped writer identity and lifecycle policies for Bronze/Silver/Gold.
+
+Run the Phase 6 acceptance test:
+
+```bash
+make smoke-lake
+```
+
+The test publishes three synthetic raw and validated records, checks exactly one data object per layer and one commit manifest per batch, verifies Kafka source coordinates/checksums in Bronze, and reads the live Silver Parquet object back through the Java reader. Data is retained in the `minio-data` named volume. Gold objects are replay-safe daily partials; Phase 8 will compact/finalize them into authoritative daily reports.
+
 ## Next implementation gate
 
-The next gate is Phase 6: MinIO-backed Bronze/Silver/Gold data lake storage. Warehouse idempotency remains Phase 7, so Phase 5 does not claim warehouse-level duplicate protection yet.
+The next gate is Phase 7: an idempotent PostgreSQL warehouse writer and star schema. Phase 6 does not claim warehouse-level duplicate protection, final daily Gold compaction or production-grade object-store encryption.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full plan and acceptance gates.

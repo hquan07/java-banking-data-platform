@@ -1,0 +1,40 @@
+server:
+  port: ${LAKE_SERVER_PORT:8086}
+  shutdown: graceful
+
+management:
+  server:
+    port: ${LAKE_MANAGEMENT_PORT:8087}
+    address: ${LAKE_MANAGEMENT_ADDRESS:127.0.0.1}
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+
+spring:
+  application:
+    name: lake-writer
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+lake:
+  enabled: ${LAKE_WRITER_ENABLED:false}
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  access-key: ${MINIO_ACCESS_KEY:banking-lake-writer}
+  secret-key: ${MINIO_SECRET_KEY:change-me-writer-local-only}
+  bucket: ${MINIO_BUCKET:banking-lake}
+  kafka-bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  raw-topic: ${LAKE_RAW_TOPIC:banking.transactions.raw}
+  validated-topic: ${LAKE_VALIDATED_TOPIC:banking.transactions.validated}
+  raw-group-id: ${LAKE_RAW_GROUP_ID:banking-lake-bronze-v1}
+  curated-group-id: ${LAKE_CURATED_GROUP_ID:banking-lake-curated-v1}
+  max-batch-records: ${LAKE_MAX_BATCH_RECORDS:500}
+  flush-interval: ${LAKE_FLUSH_INTERVAL:5s}
+  poll-timeout: ${LAKE_POLL_TIMEOUT:500ms}
+  retry-backoff: ${LAKE_RETRY_BACKOFF:2s}
+  starting-offsets: ${LAKE_STARTING_OFFSETS:earliest}

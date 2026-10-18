@@ -33,6 +33,10 @@
         <flink.version>2.1.3</flink.version>
         <flink-kafka-connector.version>5.0.0-2.1</flink-kafka-connector.version>
         <flink-kafka-client.version>4.2.0</flink-kafka-client.version>
+        <minio-java.version>9.0.3</minio-java.version>
+        <parquet.version>1.18.1</parquet.version>
+        <avro.version>1.12.1</avro.version>
+        <hadoop.version>3.4.2</hadoop.version>
         <maven-shade-plugin.version>3.6.0</maven-shade-plugin.version>
     </properties>
 
