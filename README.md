@@ -4,14 +4,14 @@ Local portfolio data platform for synthetic banking transactions, implemented in
 
 ## Current status
 
-Phases 0–7 are implemented. The local stack includes separate PostgreSQL 17.11 OLTP and warehouse databases, Kafka 4.3.1 KRaft, the transaction API/outbox publisher, a Flink 2.1.3 streaming job, a MinIO-backed data lake and an idempotent warehouse writer. The streaming job validates and deduplicates raw events, routes invalid/late failures, emits demo fraud alerts and builds event-time aggregates. The lake writer stores traceable raw micro-batches in Bronze and typed Parquet in Silver plus provisional daily partials in Gold. The warehouse writer persists transaction/fraud/window facts, dimensions, Kafka offset markers, rejects and reconciliation evidence.
+Phases 0–8 are implemented. The local stack includes separate PostgreSQL 17.11 OLTP and warehouse databases, Kafka 4.3.1 KRaft, the transaction API/outbox publisher, a Flink 2.1.3 streaming job, a MinIO-backed data lake, an idempotent warehouse writer and an Airflow 3.3.2 scheduled Java batch. Phase 8 finalizes authoritative daily Gold Parquet and warehouse aggregates from warehouse facts.
 
 ## Repository layout
 
 - `common/`: shared contracts and DTOs.
 - `services/`: transaction API, generator, outbox, streaming, lake, warehouse, batch and analytics modules.
 - `docs/`: implementation plan and architecture/data/operations documents.
-- `infrastructure/`, `warehouse/`, `orchestration/`, `scripts/`, `tests/`: runtime configuration, future warehouse/orchestration work and acceptance tooling.
+- `infrastructure/`, `warehouse/`, `orchestration/`, `scripts/`, `tests/`: runtime configuration, warehouse queries, Airflow DAGs and acceptance tooling.
 
 ## Prerequisites
 
@@ -73,7 +73,7 @@ java -jar services/outbox-publisher/target/outbox-publisher-0.1.0-SNAPSHOT.jar
 
 Publisher health and Prometheus metrics default to the local-only listener on port `8083`. The publisher retains failed rows and later retries them; it never deletes outbox events.
 
-## Local Phase 4–7 stack
+## Local Phase 4–8 stack
 
 Start the Kafka/PostgreSQL/API/publisher stack and create all governed topics:
 
@@ -130,7 +130,7 @@ Run the Phase 6 acceptance test:
 make smoke-lake
 ```
 
-The test publishes three synthetic raw and validated records, checks exactly one data object per layer and one commit manifest per batch, verifies Kafka source coordinates/checksums in Bronze, and reads the live Silver Parquet object back through the Java reader. Data is retained in the `minio-data` named volume. Gold objects are replay-safe daily partials; Phase 8 will compact/finalize them into authoritative daily reports.
+The test publishes three synthetic raw and validated records, checks exactly one data object per layer and one commit manifest per batch, verifies Kafka source coordinates/checksums in Bronze, and reads the live Silver Parquet object back through the Java reader. Data is retained in the `minio-data` named volume. These Gold objects are replay-safe partials; only the Phase 8 final object without `part-` in its name is authoritative.
 
 ## PostgreSQL warehouse (Phase 7)
 
@@ -152,8 +152,29 @@ make smoke-warehouse
 
 It publishes 1,000 transactions twice and verifies that fact count and monetary sum do not increase, then verifies fraud, window aggregate, persisted reconciliation, quarantine and DLQ publication. It preserves all named volumes.
 
+## Java daily batch and Airflow (Phase 8)
+
+Warehouse facts are the single source of truth for daily finalization. The Java CLI groups one business day by currency, applies data-quality and reconciliation checks, replaces that day's `agg_daily_transactions` partition, writes deterministic final Gold Parquet and records every success or failure in `batch_runs`.
+
+```bash
+make up-batch
+make daily-batch DATE=2026-10-18
+make up-airflow
+docker compose --profile airflow ps
+```
+
+The Airflow UI is local-only at `http://127.0.0.1:18090`. The local Simple Auth Manager username defaults to `airflow`; Airflow generates its development password in the API-server password file/log. The DAG starts paused, runs at `01:00 Asia/Ho_Chi_Minh`, disables automatic catchup and accepts an explicit `date` only for controlled manual backfills. It executes `check_source_partition → run_java_daily_batch → validate_aggregates → publish_report_metadata` with exponential retry and `max_active_runs=1`.
+
+Run the complete Phase 8 acceptance gate:
+
+```bash
+make smoke-batch
+```
+
+The smoke test proves a failed empty partition is audited, reruns the Java batch and Airflow DAG for the same synthetic day, verifies stable count/sum/fingerprint/object hash, and checks final Parquet plus `_SUCCESS.json` in MinIO. Named volumes are retained.
+
 ## Next implementation gate
 
-The next gate is Phase 8: Java batch ETL and Airflow orchestration. Phase 7 creates but does not populate the authoritative `agg_daily_transactions` table; only the Phase 8 audited batch job may finalize daily Gold and that table.
+The next gate is Phase 9: Analytics API, followed by observability and the web dashboard after the non-dashboard roadmap is complete.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full plan and acceptance gates.

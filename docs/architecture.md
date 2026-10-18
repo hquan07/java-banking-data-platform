@@ -65,9 +65,9 @@ Required diagrams:
 2. Outbox-to-Kafka publish and retry — implemented and integration-tested.
 3. Kafka-to-Flink validation/fraud/aggregation — implemented and tested with checkpoint recovery.
 4. Lake and warehouse sink idempotency and replay — implemented and tested.
-5. Batch reconciliation and report publication — planned.
+5. Batch reconciliation and report publication — implemented and tested through Airflow rerun.
 
-## Phase 4–7 local runtime topology
+## Phase 4–8 local runtime topology
 
 ```mermaid
 flowchart LR
@@ -86,6 +86,10 @@ flowchart LR
     MI[minio-init one-shot] --> M
     K --> WW[warehouse-writer]
     WW --> WH[(PostgreSQL warehouse)]
+    AF[Airflow 3.3.2] --> BP[Java batch CLI]
+    AF --> ADB[(Airflow metadata PostgreSQL)]
+    BP --> WH
+    BP --> M
 ```
 
 Kafka has separate listeners for the Docker network (`kafka:9092`) and the host (`localhost:9092`). Auto topic creation is disabled; the one-shot init service applies the checked-in topic manifest before producers and Flink start. PostgreSQL, Kafka and Flink checkpoint state use named volumes and are preserved by a normal `docker compose down`.
@@ -105,3 +109,9 @@ The writer derives a deterministic batch ID from layer, source offsets and paylo
 Validated transactions, fraud alerts and one-minute aggregates are consumed by three independent groups. For each poll, the writer opens one PostgreSQL transaction, claims each `(topic, partition, offset)`, resolves inferred date/account dimensions, upserts the business grain, persists rejects and DLQ-outbox rows when needed, and writes a reconciliation run containing source offset ranges, counts, per-currency totals and deviation. Only after that transaction commits does the consumer commit Kafka offsets.
 
 Two levels of idempotency are intentional: the processed-record primary key protects a redelivery at the same Kafka offset, while transaction, alert and aggregate IDs protect a replay published at new offsets. Database failures roll the whole batch back and cause a seek/retry. Invalid contracts and account/currency dimension conflicts are non-retryable: they are quarantined with the raw bytes and a sanitized error, then a deterministic failure record is published from the database outbox to the platform DLQ. The warehouse accepts every contract-valid three-letter currency but never combines currencies or changes an existing account's currency implicitly. Accounts missing from a dimension source are attached to the explicit inferred `UNKNOWN` customer until a future authoritative dimension feed enriches them.
+
+## Phase 8 daily finalization flow
+
+Airflow supplies an explicit business date derived from its data interval; the Java CLI never derives the partition from `now()`. Warehouse `fact_transactions` is the sole authoritative source, so the job does not sum Phase 6 partial files. It acquires a PostgreSQL transaction-scoped advisory lock for the date, computes currency-grain rows for the half-open local-day interval, runs DQ/reconciliation checks, encodes sorted deterministic Parquet and publishes the final object at `gold/daily_transactions/report_date=YYYY-MM-DD/daily-transactions-v1.parquet`.
+
+The database transaction then replaces that date's daily rows and marks its unique `batch_run_id` successful. A same-source rerun creates a new audit row but reuses byte-identical Parquet; changed late data overwrites the deterministic key while MinIO versioning preserves the previous object version. Validation compares current facts, warehouse daily rows, source fingerprint and object checksum. Only after validation does the final task write `_SUCCESS.json` and set `published_at`. A failure rolls back the daily partition and records `FAILED`; Airflow retries with exponential backoff. `max_active_runs=1`, the database lock, disabled catchup and paused-on-creation prevent accidental overlapping or uncontrolled historical runs.

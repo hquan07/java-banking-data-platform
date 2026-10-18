@@ -1,4 +1,4 @@
-.PHONY: verify compose-config up up-streaming up-lake up-warehouse down topics smoke smoke-streaming smoke-lake smoke-warehouse logs
+.PHONY: verify compose-config up up-streaming up-lake up-warehouse up-batch up-airflow daily-batch down topics smoke smoke-streaming smoke-lake smoke-warehouse smoke-batch logs
 
 verify:
 	mvn -B -ntp clean verify
@@ -18,6 +18,17 @@ up-lake:
 up-warehouse:
 	docker compose up -d --build kafka kafka-init warehouse-postgres warehouse-writer
 
+up-batch:
+	docker compose up -d --build warehouse-postgres minio minio-init
+	docker compose --profile batch build batch-processor
+
+up-airflow:
+	docker compose --profile airflow up -d --build warehouse-postgres minio minio-init airflow-api-server airflow-scheduler airflow-dag-processor
+
+daily-batch:
+	test -n "$(DATE)"
+	docker compose --profile batch run --rm batch-processor --job=daily-transactions --date="$(DATE)"
+
 down:
 	docker compose down
 
@@ -36,5 +47,8 @@ smoke-lake:
 smoke-warehouse:
 	./scripts/smoke-test-phase7.sh
 
+smoke-batch:
+	./scripts/smoke-test-phase8.sh
+
 logs:
-	docker compose logs -f transaction-service outbox-publisher kafka flink-jobmanager flink-taskmanager minio lake-writer warehouse-postgres warehouse-writer
+	docker compose logs -f transaction-service outbox-publisher kafka flink-jobmanager flink-taskmanager minio lake-writer warehouse-postgres warehouse-writer airflow-api-server airflow-scheduler airflow-dag-processor

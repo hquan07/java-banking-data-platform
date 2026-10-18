@@ -84,8 +84,12 @@ erDiagram
     DIM_DATE ||--o{ AGG_DAILY_TRANSACTIONS : dates
 ```
 
-`fact_transactions` has exactly one row per `transaction_id`; `event_id` is also unique. `fact_fraud_alerts` has one row per `alert_id` and links to a transaction when the referenced event has already arrived. `agg_transaction_windows` stores the streaming one-minute grain keyed by `aggregate_id`/`window_key`. `agg_daily_transactions` has the final `(date_key, currency)` grain but remains empty until Phase 8 writes it with an audited `batch_run_id`.
+`fact_transactions` has exactly one row per `transaction_id`; `event_id` is also unique. `fact_fraud_alerts` has one row per `alert_id` and links to a transaction when the referenced event has already arrived. `agg_transaction_windows` stores the streaming one-minute grain keyed by `aggregate_id`/`window_key`. `agg_daily_transactions` has the authoritative final `(date_key, currency)` grain and is replaced transactionally by the Phase 8 batch; every row points to the successful `batch_run_id` that produced it.
 
 `processed_kafka_records` is the delivery ledger. `warehouse_rejections` retains malformed raw bytes, while `warehouse_dlq_outbox` guarantees that quarantine and DLQ intent commit atomically with the consumed offset. `warehouse_reconciliation_runs` persists source ranges, raw/valid/invalid/unique and inserted/updated/rejected counts, duplicate deliveries, source/accepted totals per currency, and amount deviation.
 
 Because the v1 transaction event has `account_id` but no customer attributes, a missing account is inferred and linked to the explicit `UNKNOWN` customer. All contract-valid uppercase three-letter currencies are accepted and measured independently; cross-currency sums are forbidden without an explicit exchange-rate model. Once inferred, an account's currency is immutable in this writer; a conflicting event is quarantined and counted as rejected instead of silently rewriting the dimension.
+
+## Batch audit (Phase 8)
+
+`batch_runs` keeps one row per attempt with job/date/timezone, `RUNNING|SUCCEEDED|FAILED`, source/output counts, per-currency totals, DQ results, source fingerprint, Gold object key/checksum/size/schema, timing, publication time and sanitized failure details. Multiple successful attempts for one date are expected; idempotency is measured by equal business rows, fingerprint and object checksum, not by suppressing audit history. A final Gold partition is publishable only when its latest successful audit still reconciles with current warehouse facts.

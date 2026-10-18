@@ -50,7 +50,7 @@ class WarehouseRepositoryIntegrationTest {
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
                 .load();
-        assertEquals(1, flyway.migrate().migrationsExecuted);
+        assertEquals(3, flyway.migrate().migrationsExecuted);
 
         DriverManagerDataSource dataSource = new DriverManagerDataSource(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword()
@@ -114,7 +114,7 @@ class WarehouseRepositoryIntegrationTest {
         assertTrue(tables.containsAll(List.of(
                 "dim_customer", "dim_account", "dim_date", "fact_transactions", "fact_fraud_alerts",
                 "agg_transaction_windows", "agg_daily_transactions", "processed_kafka_records",
-                "warehouse_rejections", "warehouse_dlq_outbox", "warehouse_reconciliation_runs"
+                "warehouse_rejections", "warehouse_dlq_outbox", "warehouse_reconciliation_runs", "batch_runs"
         )));
     }
 

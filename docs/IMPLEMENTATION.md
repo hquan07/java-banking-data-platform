@@ -655,6 +655,8 @@ publish_report_metadata
 
 **Exit gate:** rerun DAG cùng ngày cho kết quả giống nhau; lỗi batch báo failed và retry đúng.
 
+**Trạng thái 2026-10-19:** implemented và verified cho local demo. `batch-processor` dùng warehouse `fact_transactions` làm nguồn chuẩn duy nhất, chốt ngày nghiệp vụ theo `Asia/Ho_Chi_Minh`, kiểm tra row count/grain/null/nonnegative/status counts/reconciliation, rồi ghi deterministic final Gold Parquet và thay thế partition `(date_key, currency)` trong `agg_daily_transactions`. Mỗi lần chạy có `batch_runs` audit riêng; PostgreSQL advisory lock chặn hai writer cùng ngày, lỗi partition rỗng được ghi `FAILED/DQ_FAILED`, còn rerun nguồn không đổi giữ nguyên aggregate, source fingerprint và object hash. Airflow 3.3.2 chạy Java 21 batch JAR qua bốn task đúng dependency, schedule `01:00 Asia/Ho_Chi_Minh`, exponential retry, `max_active_runs=1`, `catchup=False` và paused-on-creation để backfill chỉ diễn ra khi operator truyền ngày rõ ràng. Testcontainers, live PostgreSQL/MinIO smoke và hai lần `airflow dags test` cùng business date đều pass.
+
 ## 14. Phase 9 — Analytics API
 
 | Method | Path | Nội dung |
@@ -846,7 +848,7 @@ Nếu integration/E2E không chạy được vì Docker/registry bị giới h�
 - [x] Transaction API + idempotency + transactional outbox.
 - [x] Kafka topic bootstrap + publisher retry.
 - [x] Flink validation + dedup + fraud threshold.
-- [ ] Warehouse writer idempotent.
+- [x] Warehouse writer idempotent.
 - [x] Bronze raw archive trên MinIO.
 - [ ] End-to-end smoke test.
 
@@ -854,8 +856,8 @@ Nếu integration/E2E không chạy được vì Docker/registry bị giới h�
 
 - [x] Flink event-time windows + state checkpointing.
 - [x] Silver Parquet + replay-safe Gold daily partials.
-- [ ] Gold daily report compaction/finalization.
-- [ ] Java batch + Airflow DAG.
+- [x] Gold daily report compaction/finalization.
+- [x] Java batch + Airflow DAG.
 - [ ] Analytics API.
 - [ ] Prometheus/Grafana dashboards và alerts.
 - [ ] CI + Testcontainers + failure recovery tests.

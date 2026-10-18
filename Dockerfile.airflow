@@ -1,0 +1,30 @@
+FROM maven:3.9.11-eclipse-temurin-21 AS batch-build
+
+WORKDIR /workspace
+COPY pom.xml ./
+COPY common/pom.xml common/pom.xml
+COPY services/transaction-service/pom.xml services/transaction-service/pom.xml
+COPY services/transaction-generator/pom.xml services/transaction-generator/pom.xml
+COPY services/outbox-publisher/pom.xml services/outbox-publisher/pom.xml
+COPY services/streaming-processor/pom.xml services/streaming-processor/pom.xml
+COPY services/lake-writer/pom.xml services/lake-writer/pom.xml
+COPY services/warehouse-writer/pom.xml services/warehouse-writer/pom.xml
+COPY services/batch-processor/pom.xml services/batch-processor/pom.xml
+COPY services/analytics-service/pom.xml services/analytics-service/pom.xml
+COPY common/src common/src
+COPY services services
+
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -ntp -pl services/batch-processor -am -Dmaven.test.skip=true package \
+    && cp services/batch-processor/target/batch-processor-0.1.0-SNAPSHOT.jar /tmp/batch-processor.jar
+
+FROM eclipse-temurin:21.0.9_10-jre AS java-runtime
+
+FROM apache/airflow:3.3.2-python3.12
+
+USER root
+COPY --from=java-runtime /opt/java/openjdk /opt/java/openjdk
+COPY --from=batch-build --chown=50000:0 /tmp/batch-processor.jar /opt/banking/batch-processor.jar
+ENV JAVA_HOME=/opt/java/openjdk
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+USER airflow

@@ -159,6 +159,38 @@ A database failure intentionally leaves Kafka offsets uncommitted; restore datab
 
 Use `docker compose restart warehouse-writer` or `docker compose down` for non-destructive operations. Never use `docker compose down -v` during ordinary troubleshooting because `postgres-warehouse-data` contains facts, offset markers, rejects and reconciliation evidence. Backup/restore is not yet production-certified.
 
+## Daily batch and Airflow runtime (Phase 8)
+
+Build the Java CLI and its dependencies, then run one business date manually:
+
+```bash
+make up-batch
+make daily-batch DATE=2026-10-18
+```
+
+The date is interpreted in `BATCH_BUSINESS_TIMEZONE` (`Asia/Ho_Chi_Minh` by default) and maps to a half-open local-day interval. The job fails closed when the source partition is empty or a DQ/reconciliation check fails. Inspect recent attempts with `warehouse/queries/batch-runs.sql`; do not edit `batch_runs` or `agg_daily_transactions` manually to make a failed run appear successful.
+
+Start the local scheduler:
+
+```bash
+make up-airflow
+docker compose --profile airflow ps
+docker compose --profile airflow run --rm --no-deps airflow-cli dags list
+```
+
+The API/UI is bound to `127.0.0.1:18090`. A fresh DAG starts paused and automatic catchup is disabled. After checking the source date, enable normal scheduling explicitly or run a controlled backfill with the UI/CLI `date` configuration. The schedule is `01:00 Asia/Ho_Chi_Minh`; `data_interval_start` supplies the previous business date. Airflow uses a separate `airflow-postgres-data` volume, while task logs use `airflow-logs`.
+
+Expected task order is `check_source_partition → run_java_daily_batch → validate_aggregates → publish_report_metadata`. A successful run leaves both:
+
+```text
+gold/daily_transactions/report_date=YYYY-MM-DD/daily-transactions-v1.parquet
+gold/daily_transactions/report_date=YYYY-MM-DD/_SUCCESS.json
+```
+
+If the Java task fails, inspect the Airflow task log and matching `batch_runs` row. `FAILED/DQ_FAILED` means the partition must be corrected or deliberately skipped; repeated infrastructure errors should retain the same source data and are safe to retry. If validation reports that facts changed after the latest batch, rerun `daily-transactions` before publishing metadata. A checksum mismatch requires preserving the current MinIO object/version and audit row for investigation; do not overwrite it manually.
+
+Run `make smoke-batch` after batch, migration, DAG, timezone, MinIO or Compose changes. It uses synthetic future dates, proves a failed empty partition is audited, runs direct Java and Airflow reruns, and compares counts, sums, fingerprints and object hashes. It preserves all named volumes. Never use `docker compose down -v` during ordinary troubleshooting because that deletes warehouse facts, Gold objects, Airflow metadata and task logs.
+
 ## Planned procedures
 
 Backup/restore, operator-driven outbox replay, orphan-object disposition, DLQ disposition, durable multi-host Flink recovery and production warehouse recovery remain planned. Automated outbox retry, the Phase 4 Compose path, local TaskManager/checkpoint recovery, Phase 6 deterministic lake replay and Phase 7 warehouse replay are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.
