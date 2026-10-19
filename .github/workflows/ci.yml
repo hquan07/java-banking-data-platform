@@ -1,13 +1,21 @@
-name: build
+name: quality-gates
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [master, main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  maven:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -15,7 +23,43 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: mvn -B -ntp validate
-      - run: mvn -B -ntp test
-      - run: bash -n scripts/create-topics.sh scripts/submit-flink-job.sh scripts/smoke-test.sh scripts/smoke-test-phase5.sh
-      - run: docker compose config --quiet
+      - name: Compile and test all modules
+        run: mvn -B -ntp clean verify
+      - name: Validate executable scripts
+        run: bash -n scripts/*.sh infrastructure/minio/bootstrap.sh
+      - name: Validate every Compose profile
+        run: docker compose --profile analytics --profile monitoring --profile airflow --profile batch --profile loadtest config --quiet
+      - name: Enforce local security baseline
+        run: ./scripts/security-check.sh
+
+  repository-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan dependencies, secrets and configuration
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+  operations-smoke:
+    needs: [verify, repository-security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the full local runtime and execute Phase 10 recovery gate
+        run: make smoke-operations
+      - name: Capture diagnostics on failure
+        if: failure()
+        run: docker compose --profile analytics --profile monitoring ps -a && docker compose --profile analytics --profile monitoring logs --no-color --tail=300
+      - name: Clean the disposable CI runtime
+        if: always()
+        run: docker compose --profile analytics --profile monitoring down --volumes --remove-orphans

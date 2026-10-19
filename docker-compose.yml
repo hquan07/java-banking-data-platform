@@ -126,6 +126,7 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-change-me-root-local-only}
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     ports:
       - "127.0.0.1:${MINIO_API_HOST_PORT:-19000}:9000"
       - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-19001}:9001"
@@ -258,6 +259,8 @@ services:
         rest.address: flink-jobmanager
         rest.bind-address: 0.0.0.0
         parallelism.default: ${STREAMING_PARALLELISM:-1}
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
     ports:
       - "127.0.0.1:${FLINK_DASHBOARD_HOST_PORT:-18084}:8081"
     volumes:
@@ -281,6 +284,8 @@ services:
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: ${FLINK_TASK_SLOTS:-2}
         parallelism.default: ${STREAMING_PARALLELISM:-1}
+        metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port: 9249
     volumes:
       - flink-checkpoints:/opt/flink/checkpoints
     depends_on:
@@ -468,6 +473,109 @@ services:
     restart: unless-stopped
     networks: [banking]
 
+  kafka-exporter:
+    profiles: [monitoring]
+    image: danielqsj/kafka-exporter:v1.10.0
+    command:
+      - --kafka.server=kafka:9092
+      - --web.listen-address=:9308
+      - --topic.filter=banking\..*
+      - --group.filter=banking[-.].*
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks: [banking]
+
+  postgres-exporter-oltp:
+    profiles: [monitoring]
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-banking}:${POSTGRES_PASSWORD:-change-me-local-only}@postgres:5432/${POSTGRES_OLTP_DB:-banking_oltp}?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks: [banking]
+
+  postgres-exporter-warehouse:
+    profiles: [monitoring]
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.20.1
+    environment:
+      DATA_SOURCE_NAME: postgresql://${WAREHOUSE_DB_USERNAME:-banking_warehouse}:${WAREHOUSE_DB_PASSWORD:-change-me-warehouse-local-only}@warehouse-postgres:5432/${POSTGRES_WAREHOUSE_DB:-banking_warehouse}?sslmode=disable
+    depends_on:
+      warehouse-postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks: [banking]
+
+  prometheus:
+    profiles: [monitoring]
+    image: prom/prometheus:v3.13.4
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:${PROMETHEUS_HOST_PORT:-19090}:9090"
+    volumes:
+      - ./infrastructure/monitoring/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      kafka-exporter:
+        condition: service_started
+      postgres-exporter-oltp:
+        condition: service_started
+      postgres-exporter-warehouse:
+        condition: service_started
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks: [banking]
+
+  grafana:
+    profiles: [monitoring]
+    image: grafana/grafana:13.2.4
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-change-me-grafana-local-only}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_SERVER_DOMAIN: 127.0.0.1
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      WAREHOUSE_DB_USERNAME: ${WAREHOUSE_DB_USERNAME:-banking_warehouse}
+      WAREHOUSE_DB_PASSWORD: ${WAREHOUSE_DB_PASSWORD:-change-me-warehouse-local-only}
+      POSTGRES_WAREHOUSE_DB: ${POSTGRES_WAREHOUSE_DB:-banking_warehouse}
+    ports:
+      - "127.0.0.1:${GRAFANA_HOST_PORT:-13000}:3000"
+    volumes:
+      - ./infrastructure/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_started
+      warehouse-postgres:
+        condition: service_healthy
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    restart: unless-stopped
+    networks: [banking]
+
   airflow-postgres:
     profiles: [airflow]
     image: postgres:17.11-alpine
@@ -556,6 +664,8 @@ volumes:
   minio-data:
   airflow-postgres-data:
   airflow-logs:
+  prometheus-data:
+  grafana-data:
 
 networks:
   banking:

@@ -6,15 +6,15 @@
 
 ## 0. Trạng thái hiện tại và nguyên tắc đọc tài liệu
 
-Tài liệu này là **implementation plan**, không phải bằng chứng rằng các thành phần đã tồn tại hoặc đã chạy thành công. Snapshot repository tại **2026-10-18**:
+Tài liệu này là **implementation plan**, không phải bằng chứng rằng các thành phần đã tồn tại hoặc đã chạy thành công. Snapshot repository tại **2026-10-19**:
 
 | Hạng mục | Trạng thái đã xác nhận | Việc cần làm trước khi coi là hoàn thành |
 |---|---|---|
-| Maven | Parent multi-module đã khai báo 9 modules, Java 21 và dependency BOM | Tiếp tục pin dependency/image theo compatibility matrix khi mỗi phase thêm runtime |
+| Maven | Parent multi-module đã khai báo 9 modules, Java 21 và dependency BOM | Tiếp tục pin dependency/image theo compatibility matrix khi nâng cấp runtime |
 | Java | Maven compiler, CI và Flink image đều chốt Java 21; local Maven dùng OpenJDK 21.0.12.1 | Giữ Java 21 làm baseline và kiểm tra lại khi nâng Flink/connector |
-| Source modules | Phase 0–6 đã có contracts/migrations, transaction API, generator, outbox publisher, Kafka, Flink streaming và MinIO lake writer | Warehouse, analytics và batch vẫn là planned work |
-| Build baseline | Full reactor `mvn clean verify` pass 40 tests; Compose/script validation và live Phase 5–6 smoke đều pass | CI phải tiếp tục tái lập Maven + Compose config; downstream modules rỗng chưa được tính là implemented |
-| Runtime/deployment | Compose đã chạy PostgreSQL, Kafka KRaft, API/publisher, Flink và MinIO/lake writer; smoke tests xác nhận checkpoint recovery và lake write/read | Warehouse và full-platform E2E vẫn chưa được triển khai |
+| Source modules | Phase 0–10 đã có contracts/migrations, API/generator/outbox, Kafka/Flink, lake, warehouse, batch/Airflow, analytics và operations monitoring | End-user web dashboard là increment sau roadmap; full-source replay/benchmark nâng cao vẫn ở backlog |
+| Build baseline | Full reactor `mvn clean verify` pass với unit và Testcontainers integration tests; mọi Compose profile, script, security gate và Prometheus rules đều hợp lệ | GitHub Actions phải tái lập các gate; chưa có throughput benchmark được đo |
+| Runtime/deployment | Live smoke đã xác nhận từng phase, 12 monitoring targets, 11 alert rules, 14 dashboard panels, analytics failure recovery và restore drill PostgreSQL/MinIO | P0 full API-to-all-sinks E2E trong một run và benchmark load có số đo vẫn chưa hoàn thành |
 
 Các mục trong tài liệu dùng ba trạng thái: **planned** (kế hoạch), **implemented** (đã có code/config), và **verified** (đã chạy kiểm chứng). Chỉ được đánh dấu `verified` khi có lệnh, log hoặc artifact tái hiện được. Không dùng số liệu benchmark mục tiêu như số liệu thực tế.
 
@@ -99,7 +99,7 @@ flowchart LR
     VALID --> LOAD[Warehouse Writer]
     FRAUD --> LOAD
     LOAD --> DWH[(PostgreSQL Warehouse)]
-    SILVER --> BATCH[Java Batch ETL]
+    DWH --> BATCH[Java Batch ETL]
     AIR[Airflow] --> BATCH
     BATCH --> DWH
     BATCH --> GOLD[MinIO Gold]
@@ -713,6 +713,8 @@ publish_report_metadata
 5. **Poison event:** gửi invalid/DLQ với reason; fix parser/schema rồi replay có kiểm soát.
 6. **Data mismatch:** đối soát OLTP count ↔ raw events ↔ validated ↔ warehouse, giải thích invalid/duplicates/late arrivals.
 
+**Trạng thái 2026-10-19:** implemented và verified cho local demo. Profile `monitoring` pin Prometheus 3.13.4, Grafana 13.2.4, Kafka exporter 1.10.0 và PostgreSQL exporter 0.20.1; Prometheus scrape 12 jobs, nạp 11 alert rules và Grafana provision hai datasource cùng dashboard operations 14 panels. Micrometer xuất histogram/SLO HTTP và timestamp commit cuối cho lake/warehouse; Flink dùng native Prometheus reporter, MinIO chỉ public metrics trong network local. Security gate kiểm tra secret có độ tin cậy cao, `.env`, floating image và host binding; CI chạy full Maven/Testcontainers, Compose/security validation, Trivy và operations smoke. Live smoke đã dừng/khôi phục analytics mà giữ nguyên warehouse counts; restore drill đã so khớp PostgreSQL data/migration fingerprint và SHA-256 của object MinIO trong target tạm, không xóa named volume. Dataset registry, lifecycle table, benchmark procedure/template và sáu runbook incident đã được bổ sung; chưa ghi benchmark throughput vì chưa thực hiện load run có đo đạc.
+
 ## 16. Testing strategy
 
 | Cấp | Test cases | Công cụ |
@@ -861,9 +863,9 @@ Nếu integration/E2E không chạy được vì Docker/registry bị giới h�
 - [x] Gold daily report compaction/finalization.
 - [x] Java batch + Airflow DAG.
 - [x] Analytics API.
-- [ ] Prometheus/Grafana dashboards và alerts.
-- [ ] CI + Testcontainers + failure recovery tests.
-- [ ] README, ERD, architecture, benchmark.
+- [x] Prometheus/Grafana dashboards và alerts.
+- [x] CI + Testcontainers + failure recovery tests.
+- [x] README, ERD, architecture và phương pháp/template benchmark (chưa có kết quả đo).
 
 ### P2 — Nâng cao
 

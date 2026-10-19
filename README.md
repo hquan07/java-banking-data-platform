@@ -4,7 +4,7 @@ Local portfolio data platform for synthetic banking transactions, implemented in
 
 ## Current status
 
-Phases 0–9 are implemented. The local stack includes separate PostgreSQL 17.11 OLTP and warehouse databases, Kafka 4.3.1 KRaft, the transaction API/outbox publisher, a Flink 2.1.3 streaming job, a MinIO-backed data lake, an idempotent warehouse writer, an Airflow 3.3.2 scheduled Java batch and a read-only analytics API. Phase 8 finalizes authoritative daily Gold Parquet and warehouse aggregates from warehouse facts; Phase 9 exposes bounded daily, fraud and account-summary queries over those warehouse results.
+Phases 0–10 are implemented. The local stack includes separate PostgreSQL 17.11 OLTP and warehouse databases, Kafka 4.3.1 KRaft, the transaction API/outbox publisher, a Flink 2.1.3 streaming job, a MinIO-backed data lake, an idempotent warehouse writer, an Airflow 3.3.2 scheduled Java batch, a read-only analytics API and a provisioned Prometheus/Grafana operations stack. Phase 10 adds bounded SLO alerts, infrastructure exporters, security/CI gates and non-destructive failure plus backup/restore drills.
 
 ## Repository layout
 
@@ -73,7 +73,7 @@ java -jar services/outbox-publisher/target/outbox-publisher-0.1.0-SNAPSHOT.jar
 
 Publisher health and Prometheus metrics default to the local-only listener on port `8083`. The publisher retains failed rows and later retries them; it never deletes outbox events.
 
-## Local Phase 4–9 stack
+## Local Phase 4–10 stack
 
 Start the Kafka/PostgreSQL/API/publisher stack and create all governed topics:
 
@@ -201,8 +201,30 @@ make smoke-analytics
 
 The smoke test applies migration V4, inserts an isolated synthetic warehouse partition, checks all three contracts and removes only its own fixtures. Warehouse named volumes and existing data are retained.
 
+## Observability, security and operations (Phase 10)
+
+Start the complete backend plus the monitoring profile:
+
+```bash
+make up-monitoring
+curl --fail http://127.0.0.1:19090/-/ready
+curl --fail http://127.0.0.1:13000/api/health
+```
+
+Prometheus is local-only at `http://127.0.0.1:19090`; Grafana is local-only at `http://127.0.0.1:13000`. Grafana provisions the `Banking Platform Operations` dashboard, a Prometheus datasource and a warehouse datasource automatically. The local Grafana login defaults to `admin` / `change-me-grafana-local-only`; change it in `.env` even on a shared development machine.
+
+Run the Phase 10 gates:
+
+```bash
+make security-check
+make smoke-operations
+make backup-restore-drill
+```
+
+The operations smoke requires all 12 Prometheus jobs to be healthy, verifies 11 alert rules and 14 dashboard panels, then stops and recovers only the stateless analytics service while proving warehouse counts are unchanged. The backup drill pauses the warehouse writer when necessary, restores a logical warehouse backup into a temporary database, compares metadata/content fingerprints, and performs an isolated MinIO object delete/restore/checksum cycle. Temporary database and object targets are removed afterward; named volumes are never deleted.
+
 ## Next implementation gate
 
-The next gate is Phase 10: observability, security and operational hardening. The web dashboard remains intentionally deferred until the backend roadmap is complete.
+The non-dashboard backend roadmap is complete through Phase 10. The next product increment can be the end-user web dashboard, kept separate from the operational Grafana dashboard.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full plan and acceptance gates.

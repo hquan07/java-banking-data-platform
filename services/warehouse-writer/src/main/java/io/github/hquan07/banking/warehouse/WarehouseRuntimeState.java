@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class WarehouseRuntimeState {
@@ -16,6 +17,7 @@ public class WarehouseRuntimeState {
     private final Counter rejected;
     private final Map<String, String> currentFailures = new ConcurrentHashMap<>();
     private final Map<String, Instant> lastSuccess = new ConcurrentHashMap<>();
+    private final Map<String, AtomicLong> lastSuccessEpochSeconds = new ConcurrentHashMap<>();
 
     public WarehouseRuntimeState(MeterRegistry registry) {
         this.registry = registry;
@@ -29,7 +31,9 @@ public class WarehouseRuntimeState {
         if (rejectedRecords > 0) {
             rejected.increment(rejectedRecords);
         }
-        lastSuccess.put(stream, Instant.now());
+        Instant completedAt = Instant.now();
+        lastSuccess.put(stream, completedAt);
+        lastSuccessGauge(stream).set(completedAt.getEpochSecond());
         currentFailures.remove(stream);
     }
 
@@ -48,5 +52,18 @@ public class WarehouseRuntimeState {
 
     public Map<String, Instant> lastSuccess() {
         return Map.copyOf(lastSuccess);
+    }
+
+    private AtomicLong lastSuccessGauge(String stream) {
+        return lastSuccessEpochSeconds.computeIfAbsent(stream, key -> {
+            AtomicLong value = new AtomicLong();
+            io.micrometer.core.instrument.Gauge.builder(
+                            "banking_warehouse_last_success_timestamp_seconds", value, AtomicLong::get
+                    )
+                    .description("Unix timestamp of the latest committed warehouse batch")
+                    .tag("stream", key)
+                    .register(registry);
+            return value;
+        });
     }
 }

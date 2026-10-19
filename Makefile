@@ -1,10 +1,17 @@
-.PHONY: verify compose-config up up-streaming up-lake up-warehouse up-batch up-airflow up-analytics daily-batch down topics smoke smoke-streaming smoke-lake smoke-warehouse smoke-batch smoke-analytics logs
+.PHONY: verify compose-config security-check backup-restore-drill up up-streaming up-lake up-warehouse up-batch up-airflow up-analytics up-monitoring daily-batch down topics smoke smoke-streaming smoke-lake smoke-warehouse smoke-batch smoke-analytics smoke-operations logs
 
 verify:
 	mvn -B -ntp clean verify
 
 compose-config:
 	docker compose config --quiet
+	docker compose --profile analytics --profile monitoring config --quiet
+
+security-check:
+	./scripts/security-check.sh
+
+backup-restore-drill:
+	./scripts/backup-restore-drill.sh
 
 up:
 	docker compose up -d --build postgres kafka kafka-init transaction-service outbox-publisher
@@ -27,6 +34,9 @@ up-airflow:
 
 up-analytics:
 	docker compose --profile analytics up -d --build warehouse-postgres warehouse-migrate analytics-service
+
+up-monitoring:
+	docker compose --profile analytics --profile monitoring up -d --build postgres warehouse-postgres kafka kafka-init minio minio-init transaction-service outbox-publisher flink-jobmanager flink-taskmanager flink-submit lake-writer warehouse-writer warehouse-migrate analytics-service kafka-exporter postgres-exporter-oltp postgres-exporter-warehouse prometheus grafana
 
 daily-batch:
 	test -n "$(DATE)"
@@ -56,5 +66,8 @@ smoke-batch:
 smoke-analytics:
 	./scripts/smoke-test-phase9.sh
 
+smoke-operations:
+	./scripts/smoke-test-phase10.sh
+
 logs:
-	docker compose logs -f transaction-service outbox-publisher kafka flink-jobmanager flink-taskmanager minio lake-writer warehouse-postgres warehouse-writer analytics-service airflow-api-server airflow-scheduler airflow-dag-processor
+	docker compose --profile analytics --profile monitoring logs -f transaction-service outbox-publisher kafka flink-jobmanager flink-taskmanager minio lake-writer warehouse-postgres warehouse-writer analytics-service prometheus grafana airflow-api-server airflow-scheduler airflow-dag-processor

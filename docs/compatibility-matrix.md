@@ -23,6 +23,10 @@ This file is the source of truth for project versions. Runtime images and depend
 | Docker Compose | 2.39.4 | Phase 4 verified locally | `docker compose config`, one-shot `service_completed_successfully` dependency and local runtime | 2026-10-17 |
 | Container build JDK | Eclipse Temurin JRE 21.0.9+10 | Phase 4 selected | Runtime image `eclipse-temurin:21.0.9_10-jre`; application processes use non-root UID 10001 | 2026-10-17 |
 | Container build Maven | 3.9.11 / Temurin 21 | Phase 4 selected | Builder image `maven:3.9.11-eclipse-temurin-21`; final runtime does not contain Maven | 2026-10-17 |
+| Prometheus | 3.13.4 | Phase 10 selected | Pinned security-patch release; source-controlled scrape/rule configuration is validated with `promtool` and the live monitoring smoke | 2026-10-19 |
+| Grafana | 13.2.4 | Phase 10 selected | Pinned release; provisioned Prometheus/PostgreSQL datasources and operations dashboard are checked through the live HTTP API | 2026-10-19 |
+| Kafka exporter | 1.10.0 | Phase 10 selected | Pinned `danielqsj/kafka-exporter` image; only `banking.*` topics and groups are exposed to the private monitoring network | 2026-10-19 |
+| PostgreSQL exporter | 0.20.1 | Phase 10 selected | Pinned `prometheuscommunity/postgres-exporter` image with separate OLTP and warehouse targets and no host ports | 2026-10-19 |
 
 ## Upgrade policy
 

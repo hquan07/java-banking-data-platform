@@ -1,0 +1,119 @@
+groups:
+  - name: banking-platform-availability
+    rules:
+      - alert: BankingTargetDown
+        expr: up{job!="prometheus"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is not scrapeable"
+          description: "Prometheus has been unable to scrape {{ $labels.instance }} for two minutes."
+
+      - alert: BankingApiSuccessRateLow
+        expr: |
+          (
+            sum by (job) (rate(http_server_requests_seconds_count{job=~"transaction-service|analytics-service",status=~"2.."}[5m]))
+            /
+            sum by (job) (rate(http_server_requests_seconds_count{job=~"transaction-service|analytics-service"}[5m]))
+          ) < 0.99
+          and
+          sum by (job) (rate(http_server_requests_seconds_count{job=~"transaction-service|analytics-service"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} success rate is below 99%"
+          description: "The five-minute HTTP success-rate objective is not being met."
+
+      - alert: BankingApiP95LatencyHigh
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (job, le) (
+              rate(http_server_requests_seconds_bucket{job=~"transaction-service|analytics-service"}[5m])
+            )
+          ) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.job }} p95 latency exceeds 300 ms"
+          description: "The local demo latency objective has been exceeded for five minutes."
+
+  - name: banking-platform-data-pipeline
+    rules:
+      - alert: BankingOutboxBacklogHigh
+        expr: banking_outbox_backlog > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Transactional outbox backlog exceeds 100 rows"
+          description: "Inspect publisher readiness, Kafka availability and publish failures before changing data."
+
+      - alert: BankingKafkaConsumerLagGrowing
+        expr: kafka_consumergroup_lag > 0 and deriv(kafka_consumergroup_lag[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka lag is continuously growing for {{ $labels.consumergroup }}"
+          description: "The consumer group is falling behind; verify throughput and downstream dependencies."
+
+      - alert: BankingFlinkCheckpointFailures
+        expr: increase(flink_jobmanager_job_numberOfFailedCheckpoints[5m]) >= 3
+        labels:
+          severity: critical
+        annotations:
+          summary: "Flink failed at least three checkpoints in five minutes"
+          description: "Inspect JobManager/TaskManager logs and preserve checkpoint state before recovery."
+
+      - alert: BankingWarehouseWriterFailures
+        expr: increase(banking_warehouse_batch_failures_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Warehouse writer batch failure detected"
+          description: "Kafka offsets remain uncommitted; restore the dependency and allow the batch to retry."
+
+      - alert: BankingLakeWriterFailures
+        expr: increase(banking_lake_batch_failures_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Lake writer batch failure detected"
+          description: "Preserve source offsets and existing objects; the deterministic retry path should recover."
+
+      - alert: BankingWarehouseDataStale
+        expr: |
+          (
+            banking_warehouse_last_success_timestamp_seconds > 0
+            and time() - banking_warehouse_last_success_timestamp_seconds > 120
+          )
+          and on()
+          sum(kafka_consumergroup_lag{consumergroup=~"banking-warehouse-.*"}) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Warehouse stream {{ $labels.stream }} is stale while lag exists"
+          description: "No successful warehouse commit has been observed for more than two minutes while Kafka records are pending."
+
+      - alert: BankingMinioCapacityWarning
+        expr: 1 - (minio_cluster_capacity_usable_free_bytes / minio_cluster_capacity_usable_total_bytes) > 0.75
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MinIO usage exceeds 75%"
+          description: "Review retention and backup status before applying lifecycle or compaction changes."
+
+      - alert: BankingMinioCapacityCritical
+        expr: 1 - (minio_cluster_capacity_usable_free_bytes / minio_cluster_capacity_usable_total_bytes) > 0.90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MinIO usage exceeds 90%"
+          description: "Stop non-essential writers and follow the near-full storage runbook."

@@ -217,6 +217,46 @@ Use the response `X-Correlation-ID` to match a failed request to service logs. A
 
 Run `make smoke-analytics` after API contract, SQL, pool/timeout, migration or Compose changes. It inserts an isolated synthetic future-day partition, verifies all three endpoints plus migration V4 and removes only those fixtures in its exit trap. Existing named-volume data is retained. A normal `docker compose restart analytics-service` or `docker compose down` is non-destructive; never use `docker compose down -v` during ordinary troubleshooting.
 
+## Observability and operations runtime (Phase 10)
+
+Start the full backend and optional operations stack:
+
+```bash
+make up-monitoring
+curl --fail http://127.0.0.1:19090/-/ready
+curl --fail http://127.0.0.1:13000/api/health
+```
+
+Prometheus is local-only at `127.0.0.1:19090`; Grafana is local-only at `127.0.0.1:13000`. Log in with `GRAFANA_ADMIN_USER` and `GRAFANA_ADMIN_PASSWORD`, then open the provisioned `Banking Platform Operations` dashboard. This is an operator dashboard, not the planned end-user web dashboard. Exporter ports are private to the Compose network.
+
+Use `make smoke-operations` after changes to metrics, exporters, alert rules, dashboard provisioning or Compose. It requires 12 healthy scrape jobs and 11 loaded alert rules, checks both Grafana datasources and at least 14 panels, then stops/restarts the read-only analytics API and proves warehouse counts did not change. Run `make security-check` after changing Compose, images, Dockerfiles, environment examples or CI.
+
+Run the isolated restore drill with:
+
+```bash
+make backup-restore-drill
+```
+
+The drill pauses `warehouse-writer` only when it was already running, restores a custom PostgreSQL dump to a uniquely named temporary database, compares data/migration fingerprints, then deletes that temporary database. It also writes, deletes and restores one uniquely named MinIO object and compares SHA-256. Its exit trap removes only those temporary targets and restarts the writer when needed. It never removes a named volume and is not a complete production disaster-recovery exercise.
+
+Useful diagnostics:
+
+```bash
+docker compose --profile analytics --profile monitoring ps -a
+docker compose --profile analytics --profile monitoring logs prometheus grafana kafka-exporter postgres-exporter-oltp postgres-exporter-warehouse
+curl --fail http://127.0.0.1:19090/api/v1/targets
+curl --fail http://127.0.0.1:19090/api/v1/rules?type=alert
+```
+
+### Incident scenarios
+
+1. **Kafka unavailable:** confirm the transaction API still commits OLTP/outbox rows and watch `banking_outbox_backlog`. Restore the broker without deleting its volume, verify topic topology, then let the publisher drain naturally. Do not edit `published_at` or advance offsets.
+2. **Flink job crash:** preserve JobManager/TaskManager logs and `flink-checkpoints`, restart the failed process, verify the job is `RUNNING`, observe a later successful checkpoint and confirm consumer lag falls. Do not remove the checkpoint volume as a shortcut.
+3. **Warehouse unavailable:** leave source offsets uncommitted, restore PostgreSQL, and allow `warehouse-writer` to retry its database transaction. Compare reconciliation runs and failure metrics; do not skip source records or manually mark DLQ rows published.
+4. **MinIO near full:** stop nonessential batch/backfill work, verify the capacity alert against actual object/volume usage, identify the layer and retention owner, and create/verify a backup before applying an approved lifecycle/compaction action. Never delete a bucket or named volume during diagnosis.
+5. **Poison event:** find the deterministic quarantine and DLQ records by source coordinates/payload hash, preserve the raw bytes, determine whether the contract or parser is wrong, then replay into a new controlled consumer/run namespace after the fix. Do not mutate the original event or mix the replay with baseline KPI counts.
+6. **Data mismatch:** freeze the compared topic partitions and offset range, count raw records, validation outcomes, unique event IDs, late events, lake manifests and warehouse processed coordinates, then explain every duplicate/reject before rerunning. The simple `raw = valid + invalid` relation is insufficient unless offsets and deduplication scope match.
+
 ## Planned procedures
 
-Backup/restore, operator-driven outbox replay, orphan-object disposition, DLQ disposition, durable multi-host Flink recovery and production warehouse recovery remain planned. Automated outbox retry, the Phase 4 Compose path, local TaskManager/checkpoint recovery, Phase 6 deterministic lake replay and Phase 7 warehouse replay are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.
+Operator-driven outbox replay, orphan-object disposition, DLQ disposition, durable multi-host Flink recovery, point-in-time/off-site backup and production warehouse recovery remain planned. Automated outbox retry, the Phase 4 Compose path, local TaskManager/checkpoint recovery, Phase 6 deterministic lake replay, Phase 7 warehouse replay and the isolated Phase 10 logical/object restore drill are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.

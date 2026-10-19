@@ -42,6 +42,9 @@ management:
           include: readinessState,db,kafka
         liveness:
           include: livenessState
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 publisher:
   enabled: ${OUTBOX_PUBLISHER_ENABLED:false}

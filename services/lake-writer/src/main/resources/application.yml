@@ -15,6 +15,9 @@ management:
       probes:
         enabled: true
       show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}
 
 spring:
   application:

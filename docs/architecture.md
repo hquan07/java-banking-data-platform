@@ -1,6 +1,6 @@
 # Architecture
 
-The target architecture and failure boundaries are described in `docs/IMPLEMENTATION.md`, section 3. The implemented vertical slice now covers the transaction API, outbox publication, Kafka infrastructure, Flink streaming, MinIO data lake, PostgreSQL warehouse, scheduled daily finalization and the read-only analytics API through Phase 9.
+The target architecture and failure boundaries are described in `docs/IMPLEMENTATION.md`, section 3. The implemented vertical slice now covers the transaction API, outbox publication, Kafka infrastructure, Flink streaming, MinIO data lake, PostgreSQL warehouse, scheduled daily finalization, the read-only analytics API and operational observability through Phase 10.
 
 ## Transaction API and transactional outbox
 
@@ -67,8 +67,9 @@ Required diagrams:
 4. Lake and warehouse sink idempotency and replay — implemented and tested.
 5. Batch reconciliation and report publication — implemented and tested through Airflow rerun.
 6. Read-only warehouse analytics queries and bounded API contracts — implemented and tested.
+7. Metrics collection, alert evaluation and stateless-service recovery — implemented and tested.
 
-## Phase 4–9 local runtime topology
+## Phase 4–10 local runtime topology
 
 ```mermaid
 flowchart LR
@@ -93,6 +94,21 @@ flowchart LR
     BP --> M
     HOST --> AN[analytics-service]
     AN --> WH
+    API -. metrics .-> PROM[Prometheus]
+    PUB -. metrics .-> PROM
+    JM -. metrics .-> PROM
+    TM -. metrics .-> PROM
+    LW -. metrics .-> PROM
+    WW -. metrics .-> PROM
+    AN -. metrics .-> PROM
+    K -. kafka-exporter .-> PROM
+    PG -. postgres-exporter .-> PROM
+    WH -. postgres-exporter .-> PROM
+    M -. metrics .-> PROM
+    PROM --> GRAF[Grafana operations]
+    WH -. read-only operations panels .-> GRAF
+    HOST --> PROM
+    HOST --> GRAF
 ```
 
 Kafka has separate listeners for the Docker network (`kafka:9092`) and the host (`localhost:9092`). Auto topic creation is disabled; the one-shot init service applies the checked-in topic manifest before producers and Flink start. PostgreSQL, Kafka and Flink checkpoint state use named volumes and are preserved by a normal `docker compose down`.
@@ -124,3 +140,11 @@ The database transaction then replaces that date's daily rows and marks its uniq
 The `warehouse-migrate` one-shot container applies the shared warehouse migrations before `analytics-service` starts. The API disables application Flyway execution, opens Hikari connections in read-only mode and marks every query transaction read-only with a three-second timeout. This separates schema ownership from request serving and prevents an API restart from becoming an implicit migration operation.
 
 Daily queries read only `agg_daily_transactions` rows produced by one successful Phase 8 batch and preserve currency-grain values rather than inventing cross-currency conversion. Fraud queries use a maximum 31-day half-open interval, bounded offset pagination and deterministic `(detected_at DESC, alert_id DESC)` ordering. Account summaries join the dimension to pre-aggregated transaction and fraud subqueries so accounts with no facts still have a stable zero-valued response. Migration V4 supports these access paths with time-ordered and account-time fraud indexes. Missing analytics return 404, invalid ranges return 400 and unavailable dependencies return a sanitized 503 carrying the request correlation ID.
+
+## Phase 10 observability and recovery boundaries
+
+The optional `monitoring` profile scrapes the five Java management listeners, Kafka and both PostgreSQL databases through dedicated exporters, native Flink reporters, MinIO cluster metrics and Prometheus itself. Grafana is provisioned from source-controlled files with one Prometheus datasource, one read-only warehouse datasource and the `Banking Platform Operations` dashboard. Prometheus and Grafana bind only to loopback; exporter ports stay inside the Compose network.
+
+The dashboard and alert rules expose symptoms rather than changing pipeline state. Operators use the runbook to decide whether to wait, restart a stateless process, preserve evidence or stop a producer. In particular, an alert never deletes an object, advances a Kafka offset, edits an audit row or removes a named volume. The end-user web dashboard remains a separate post-roadmap application and must consume the bounded Phase 9 API instead of exposing operational credentials or querying OLTP for analytics.
+
+Phase 10 verifies two recovery properties with disposable targets. The analytics outage drill stops and restarts only the read-only API while comparing warehouse counts before and after. The backup/restore drill creates a PostgreSQL custom-format dump, restores it into an isolated temporary database, compares content and migration fingerprints, and performs an isolated MinIO object checksum restore. It removes only its temporary database/object and preserves every named volume. These local drills are reproducible evidence for the demo profile, not a production disaster-recovery certification.

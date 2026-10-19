@@ -42,6 +42,14 @@ management:
           include: readinessState,db
         liveness:
           include: livenessState
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 100ms,300ms,1s
 
 logging:
   level:
