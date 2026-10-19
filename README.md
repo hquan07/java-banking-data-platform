@@ -4,7 +4,7 @@ Local portfolio data platform for synthetic banking transactions, implemented in
 
 ## Current status
 
-Phases 0–8 are implemented. The local stack includes separate PostgreSQL 17.11 OLTP and warehouse databases, Kafka 4.3.1 KRaft, the transaction API/outbox publisher, a Flink 2.1.3 streaming job, a MinIO-backed data lake, an idempotent warehouse writer and an Airflow 3.3.2 scheduled Java batch. Phase 8 finalizes authoritative daily Gold Parquet and warehouse aggregates from warehouse facts.
+Phases 0–9 are implemented. The local stack includes separate PostgreSQL 17.11 OLTP and warehouse databases, Kafka 4.3.1 KRaft, the transaction API/outbox publisher, a Flink 2.1.3 streaming job, a MinIO-backed data lake, an idempotent warehouse writer, an Airflow 3.3.2 scheduled Java batch and a read-only analytics API. Phase 8 finalizes authoritative daily Gold Parquet and warehouse aggregates from warehouse facts; Phase 9 exposes bounded daily, fraud and account-summary queries over those warehouse results.
 
 ## Repository layout
 
@@ -73,7 +73,7 @@ java -jar services/outbox-publisher/target/outbox-publisher-0.1.0-SNAPSHOT.jar
 
 Publisher health and Prometheus metrics default to the local-only listener on port `8083`. The publisher retains failed rows and later retries them; it never deletes outbox events.
 
-## Local Phase 4–8 stack
+## Local Phase 4–9 stack
 
 Start the Kafka/PostgreSQL/API/publisher stack and create all governed topics:
 
@@ -173,8 +173,36 @@ make smoke-batch
 
 The smoke test proves a failed empty partition is audited, reruns the Java batch and Airflow DAG for the same synthetic day, verifies stable count/sum/fingerprint/object hash, and checks final Parquet plus `_SUCCESS.json` in MinIO. Named volumes are retained.
 
+## Warehouse analytics API (Phase 9)
+
+Start the isolated warehouse database, apply all warehouse migrations with the one-shot migration job and run the read-only API:
+
+```bash
+make up-analytics
+docker compose --profile analytics ps -a
+curl --fail http://127.0.0.1:18093/actuator/health/readiness
+```
+
+Query a finalized daily partition, a bounded fraud interval and one account summary:
+
+```bash
+curl --fail 'http://127.0.0.1:18092/api/v1/analytics/daily?date=2026-10-18'
+curl --fail 'http://127.0.0.1:18092/api/v1/analytics/fraud?from=2026-10-01T00:00:00Z&to=2026-11-01T00:00:00Z&page=0&size=50'
+curl --fail 'http://127.0.0.1:18092/api/v1/analytics/accounts/ACC10001/summary'
+```
+
+Fraud ranges use the half-open interval `[from,to)` and cannot exceed 31 days. Pages are zero-based, `page` is capped at 1,000 and `size` at 200. Monetary values are serialized as decimal strings. The daily response is private-cacheable for 30 seconds; all database transactions and pool connections are configured read-only with three-second query/transaction timeouts.
+
+Run the complete Phase 9 acceptance gate:
+
+```bash
+make smoke-analytics
+```
+
+The smoke test applies migration V4, inserts an isolated synthetic warehouse partition, checks all three contracts and removes only its own fixtures. Warehouse named volumes and existing data are retained.
+
 ## Next implementation gate
 
-The next gate is Phase 9: Analytics API, followed by observability and the web dashboard after the non-dashboard roadmap is complete.
+The next gate is Phase 10: observability, security and operational hardening. The web dashboard remains intentionally deferred until the backend roadmap is complete.
 
 See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) for the full plan and acceptance gates.

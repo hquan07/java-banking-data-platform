@@ -418,6 +418,56 @@ services:
         condition: service_completed_successfully
     networks: [banking]
 
+  warehouse-migrate:
+    profiles: [analytics]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: services/warehouse-writer
+        ARTIFACT: warehouse-writer-0.1.0-SNAPSHOT.jar
+    command: ["--spring.main.web-application-type=none"]
+    environment:
+      WAREHOUSE_WRITER_ENABLED: "false"
+      WAREHOUSE_DB_URL: jdbc:postgresql://warehouse-postgres:5432/${POSTGRES_WAREHOUSE_DB:-banking_warehouse}
+      WAREHOUSE_DB_USERNAME: ${WAREHOUSE_DB_USERNAME:-banking_warehouse}
+      WAREHOUSE_DB_PASSWORD: ${WAREHOUSE_DB_PASSWORD:-change-me-warehouse-local-only}
+      WAREHOUSE_DB_MAX_POOL_SIZE: 2
+    depends_on:
+      warehouse-postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [banking]
+
+  analytics-service:
+    profiles: [analytics]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MODULE: services/analytics-service
+        ARTIFACT: analytics-service-0.1.0-SNAPSHOT.jar
+    environment:
+      WAREHOUSE_DB_URL: jdbc:postgresql://warehouse-postgres:5432/${POSTGRES_WAREHOUSE_DB:-banking_warehouse}
+      WAREHOUSE_DB_USERNAME: ${WAREHOUSE_DB_USERNAME:-banking_warehouse}
+      WAREHOUSE_DB_PASSWORD: ${WAREHOUSE_DB_PASSWORD:-change-me-warehouse-local-only}
+      ANALYTICS_DB_MAX_POOL_SIZE: ${ANALYTICS_DB_MAX_POOL_SIZE:-10}
+      ANALYTICS_DB_MIN_IDLE: ${ANALYTICS_DB_MIN_IDLE:-2}
+      ANALYTICS_DB_CONNECTION_TIMEOUT_MS: ${ANALYTICS_DB_CONNECTION_TIMEOUT_MS:-3000}
+      ANALYTICS_DB_VALIDATION_TIMEOUT_MS: ${ANALYTICS_DB_VALIDATION_TIMEOUT_MS:-2000}
+      ANALYTICS_QUERY_TIMEOUT: ${ANALYTICS_QUERY_TIMEOUT:-3s}
+      SERVER_PORT: 8080
+      MANAGEMENT_SERVER_PORT: 8081
+      MANAGEMENT_SERVER_ADDRESS: 0.0.0.0
+    ports:
+      - "127.0.0.1:${ANALYTICS_HOST_PORT:-18092}:8080"
+      - "127.0.0.1:${ANALYTICS_MANAGEMENT_HOST_PORT:-18093}:8081"
+    depends_on:
+      warehouse-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [banking]
+
   airflow-postgres:
     profiles: [airflow]
     image: postgres:17.11-alpine

@@ -191,6 +191,32 @@ If the Java task fails, inspect the Airflow task log and matching `batch_runs` r
 
 Run `make smoke-batch` after batch, migration, DAG, timezone, MinIO or Compose changes. It uses synthetic future dates, proves a failed empty partition is audited, runs direct Java and Airflow reruns, and compares counts, sums, fingerprints and object hashes. It preserves all named volumes. Never use `docker compose down -v` during ordinary troubleshooting because that deletes warehouse facts, Gold objects, Airflow metadata and task logs.
 
+## Analytics API runtime (Phase 9)
+
+Start the warehouse, run the one-shot migration and start the read-only API:
+
+```bash
+make up-analytics
+docker compose --profile analytics ps -a
+curl --fail http://127.0.0.1:18093/actuator/health/liveness
+curl --fail http://127.0.0.1:18093/actuator/health/readiness
+```
+
+Expected state: `warehouse-postgres` and `analytics-service` are running, while `warehouse-migrate` has exited with code 0 after applying migrations through V4. The API and management listeners are local-only on `127.0.0.1:18092` and `127.0.0.1:18093`. A daily 404 means no finalized `agg_daily_transactions` partition exists for that date; run or repair Phase 8 instead of inserting API-side fallback data. Fraud requests must use ISO-8601 instants, a half-open range no longer than 31 days, `page=0..1000` and `size=1..200`.
+
+Useful diagnostics:
+
+```bash
+docker compose --profile analytics logs warehouse-migrate analytics-service
+docker compose exec -T warehouse-postgres psql -U banking_warehouse -d banking_warehouse \
+  -c 'SELECT version, description, success FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 5'
+curl -i 'http://127.0.0.1:18092/api/v1/analytics/fraud?from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z&page=0&size=50'
+```
+
+Use the response `X-Correlation-ID` to match a failed request to service logs. A 400 indicates a malformed or out-of-policy query, a 404 indicates missing warehouse data, and a sanitized 503 indicates database/query availability trouble. Restore the warehouse dependency and retry the same GET; do not grant write access or modify warehouse rows to force a response.
+
+Run `make smoke-analytics` after API contract, SQL, pool/timeout, migration or Compose changes. It inserts an isolated synthetic future-day partition, verifies all three endpoints plus migration V4 and removes only those fixtures in its exit trap. Existing named-volume data is retained. A normal `docker compose restart analytics-service` or `docker compose down` is non-destructive; never use `docker compose down -v` during ordinary troubleshooting.
+
 ## Planned procedures
 
 Backup/restore, operator-driven outbox replay, orphan-object disposition, DLQ disposition, durable multi-host Flink recovery and production warehouse recovery remain planned. Automated outbox retry, the Phase 4 Compose path, local TaskManager/checkpoint recovery, Phase 6 deterministic lake replay and Phase 7 warehouse replay are verified with disposable synthetic data. Do not mark any other recovery procedure verified until it has been executed against disposable test data.

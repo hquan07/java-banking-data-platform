@@ -669,6 +669,8 @@ publish_report_metadata
 - Test contract, timeout, connection pooling và indexes.
 - Có thể bổ sung frontend dashboard sau; không phải mục tiêu chính của DE portfolio.
 
+**Trạng thái 2026-10-19:** implemented và verified cho local demo. `analytics-service` chỉ đọc warehouse và cung cấp đủ ba endpoint: daily lấy duy nhất aggregate Phase 8 đã final, fraud dùng khoảng thời gian nửa mở `[from,to)` tối đa 31 ngày cùng pagination có giới hạn, account summary tổng hợp fact giao dịch và cảnh báo theo đúng account dimension. Kết nối Hikari, transaction và JDBC query đều có read-only/timeout; daily response có private cache 30 giây; lỗi validation/not-found/dependency trả contract an toàn kèm correlation ID. Migration V4 bổ sung index theo thứ tự fraud và account; Testcontainers contract test chứng minh các GET không làm thay đổi fact/audit, còn live smoke kiểm tra cả ba API và tự dọn đúng fixture cô lập.
+
 ## 15. Phase 10 — Observability, security và operations
 
 ### 15.1 Metrics/SLO mẫu (mục tiêu thử nghiệm, không phải kết quả đã đạt)
@@ -858,7 +860,7 @@ Nếu integration/E2E không chạy được vì Docker/registry bị giới h�
 - [x] Silver Parquet + replay-safe Gold daily partials.
 - [x] Gold daily report compaction/finalization.
 - [x] Java batch + Airflow DAG.
-- [ ] Analytics API.
+- [x] Analytics API.
 - [ ] Prometheus/Grafana dashboards và alerts.
 - [ ] CI + Testcontainers + failure recovery tests.
 - [ ] README, ERD, architecture, benchmark.

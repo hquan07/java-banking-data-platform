@@ -93,3 +93,9 @@ Because the v1 transaction event has `account_id` but no customer attributes, a 
 ## Batch audit (Phase 8)
 
 `batch_runs` keeps one row per attempt with job/date/timezone, `RUNNING|SUCCEEDED|FAILED`, source/output counts, per-currency totals, DQ results, source fingerprint, Gold object key/checksum/size/schema, timing, publication time and sanitized failure details. Multiple successful attempts for one date are expected; idempotency is measured by equal business rows, fingerprint and object checksum, not by suppressing audit history. A final Gold partition is publishable only when its latest successful audit still reconciles with current warehouse facts.
+
+## Analytics read model (Phase 9)
+
+Phase 9 adds no duplicate analytics tables. The daily endpoint reads the authoritative `(date_key, currency)` rows from `agg_daily_transactions` and exposes their `batch_run_id` and business timezone. The account endpoint anchors on `dim_account`, then aggregates that account's transaction statuses, amount and fraud history without changing warehouse state. The fraud endpoint filters `fact_fraud_alerts.detected_at` with a half-open interval and a stable alert-ID tie-breaker.
+
+Warehouse migration V4 adds `idx_fact_fraud_detected_alert` on `(detected_at DESC, alert_id DESC)` for time-ordered pagination and `idx_fact_fraud_account_detected` on `(account_key, detected_at DESC)` for account summaries. Existing fact primary/foreign keys and transaction/account indexes remain the source of integrity; API code does not own migrations and does not write repair rows.
